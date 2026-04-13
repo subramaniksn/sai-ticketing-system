@@ -17,7 +17,7 @@ export default function Login() {
   const loginUser = async () => {
     setLoading(true);
     try {
-      const res = await axios.post(`${process.env.REACT_APP_API_URL || 'http://35.154.47.168:5000'}/api/auth/login`, form);
+      const res = await axios.post(`${process.env.REACT_APP_API_URL || 'http://35.154.47.168:5001'}/api/auth/login`, form);
       
       // 🔥 FIRST TIME LOGIN CHECK
       if (res.data.firstTimeLogin) {
@@ -61,7 +61,7 @@ export default function Login() {
 
     try {
       setLoading(true);
-      const res = await axios.post(`${process.env.REACT_APP_API_URL || 'http://35.154.47.168:5000'}/api/auth/set-password`, {
+      const res = await axios.post(`${process.env.REACT_APP_API_URL || 'http://35.154.47.168:5001'}/api/auth/set-password`, {
         userId: userData.userId,
         email: userData.email,
         newPassword
