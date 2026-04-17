@@ -257,7 +257,8 @@ export default function EngineerDashboard() {
   const [remarks, setRemarks] = useState({});
   const [processing, setProcessing] = useState({});
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
-
+  const [viewMode, setViewMode] = useState("table"); // default table
+  const [selectedTicket, setSelectedTicket] = useState(null);
 
   // 🔄 Load My Tickets (ALL statuses: Open, InProgress, Pending, Resolved)
   const loadTickets = useCallback(async () => {
@@ -409,84 +410,151 @@ export default function EngineerDashboard() {
         <div style={styles.emptyState}>
           <div style={{ fontSize: "64px", marginBottom: "24px", opacity: 0.5 }}>📭</div>
           <h3>No assigned tickets found</h3>
-          <p style={{ fontSize: "16px" }}>All tickets will appear here when assigned to you.</p>
         </div>
-      ) : (
-        <div style={styles.ticketGrid}>
-          {tickets.map((t) => (
-            <div key={t.TicketID} style={styles.ticketCard}>
-              <div style={styles.ticketLayout}>
-                {/* LEFT SIDE DETAILS + TIMESTAMPS */}
-                <div style={styles.detailsSection}>
-                  <h4 style={styles.ticketNumber}>🎫 {t.TicketNo}</h4>
-                  
-                  <div style={styles.infoRow}>
-                    <strong style={{ minWidth: "80px", color: "#1976d2" }}>Customer:</strong> 
-                    <span>{t.CustomerName}</span>
-                  </div>
-                  
-                  <div style={styles.infoRow}>
-                    <strong style={{ minWidth: "80px", color: "#1976d2" }}>Site:</strong> 
-                    <span>{t.SiteName}</span>
-                  </div>
-                  
-                  <div style={styles.infoRow}>
-                    <strong style={{ minWidth: "80px", color: "#1976d2" }}>Priority:</strong> 
+      ) : viewMode === "table" ? (  
+
+        // ✅ TABLE VIEW
+        <div style={{
+          background: "white",
+          borderRadius: "12px",
+          overflow: "auto",
+          boxShadow: "0 4px 20px rgba(0,0,0,0.08)"
+        }}>
+          <table style={{ width: "100%", borderCollapse: "collapse" }}>
+            <thead>
+              <tr style={{ background: "#1976d2", color: "white" }}>
+                <th style={{ padding: "10px" }}>Ticket</th>
+                <th style={{ padding: "10px" }}>Customer</th>
+                <th style={{ padding: "10px" }}>Site</th>
+                <th style={{ padding: "10px" }}>Priority</th>
+                <th style={{ padding: "10px" }}>Status</th>
+                <th style={{ padding: "10px" }}>Action</th>
+              </tr>
+            </thead>
+
+            <tbody>
+              {tickets.map((t) => (
+                <tr key={t.TicketID} style={{ borderBottom: "1px solid #eee" }}>
+                  <td style={{ padding: "10px" }}>{t.TicketNo}</td>
+                  <td style={{ padding: "10px" }}>{t.CustomerName}</td>
+                  <td style={{ padding: "10px" }}>{t.SiteName}</td>
+
+                  <td style={{ padding: "10px" }}>
                     <span style={{
-                      background: t.priority === "High" ? "#ef4444" : t.priority === "Medium" ? "#f59e0b" : "#10b981",
+                      background: t.priority === "High" ? "#ef4444" :
+                                t.priority === "Medium" ? "#f59e0b" : "#10b981",
                       color: "white",
-                      padding: "4px 12px",
-                      borderRadius: "20px",
-                      fontSize: "13px",
-                      fontWeight: "600"
-                    }}>{t.priority}</span>
-                  </div>
-                  
-                  <div style={styles.infoRow}>
-                    <strong style={{ minWidth: "80px", color: "#1976d2" }}>Issue:</strong> 
-                    <span style={{ fontWeight: "500" }}>{t.IssueDetails}</span>
-                  </div>
+                      padding: "4px 10px",
+                      borderRadius: "20px"
+                    }}>
+                      {t.priority}
+                    </span>
+                  </td>
 
-                  {/* ✅ STATUS WITH COLORS */}
-                  <div style={{
-                    ...styles.statusBadge,
-                    color: getStatusColor(t.Status),
-                    backgroundColor: getStatusColor(t.Status) + "20"
-                  }}>
-                    📍 Status: {getStatusIcon(t.Status)} {t.Status}
-                  </div>
+                  <td style={{ padding: "10px" }}>
+                    {getStatusIcon(t.Status)} {t.Status}
+                  </td>
 
-                  {/* ✅ FIXED TIMESTAMPS - SQL EXACT MATCH */}
-                  {t.InProgress_Date && (
-                    <div style={styles.timestamp}>
-                      🚀 Started: {formatIstDate(t.InProgress_Date)}
+                  <td style={{ padding: "10px" }}>
+                    <button
+                      onClick={() => {
+                        setSelectedTicket(t);
+                        setViewMode("card");
+                      }}
+                      style={{
+                        padding: "6px 12px",
+                        background: "#1976d2",
+                        color: "white",
+                        border: "none",
+                        borderRadius: "6px",
+                        cursor: "pointer"
+                      }}
+                    >
+                      👁 View
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+      ) : (
+
+        // ✅ SINGLE CARD VIEW
+        <div>
+          
+          {/* 🔙 BACK BUTTON */}
+          <button
+            onClick={() => {
+              setViewMode("table");
+              setSelectedTicket(null);
+            }}
+            style={{
+              marginBottom: "20px",
+              padding: "10px 16px",
+              background: "#6b7280",
+              color: "white",
+              border: "none",
+              borderRadius: "6px",
+              cursor: "pointer"
+            }}
+          >
+            ⬅ Back to Table
+          </button>
+
+          {/* ✅ SHOW ONLY SELECTED TICKET */}
+          <div style={styles.ticketGrid}>
+            {[selectedTicket].map((t) => (
+              <div key={t.TicketID} style={styles.ticketCard}>
+                <div style={styles.ticketLayout}>
+
+                  {/* LEFT SIDE */}
+                  <div style={styles.detailsSection}>
+                    <h4 style={styles.ticketNumber}>🎫 {t.TicketNo}</h4>
+
+                    <div style={styles.infoRow}><strong>Customer:</strong> {t.CustomerName}</div>
+                    <div style={styles.infoRow}><strong>Site:</strong> {t.SiteName}</div>
+
+                    <div style={styles.infoRow}>
+                      <strong>Priority:</strong>
+                      <span style={{
+                        background: t.priority === "High" ? "#ef4444" :
+                                  t.priority === "Medium" ? "#f59e0b" : "#10b981",
+                        color: "white",
+                        padding: "4px 10px",
+                        borderRadius: "20px"
+                      }}>
+                        {t.priority}
+                      </span>
                     </div>
-                  )}
-                  {t.Pending_Date && (
-                    <div style={styles.timestamp}>
-                      ⏳ Pending: {formatIstDate(t.Pending_Date)}
-                    </div>
-                  )}
-                  {t.Resolved_Date && (
-                    <div style={styles.timestamp}>
-                      ✅ Resolved: {formatIstDate(t.Resolved_Date)}
-                    </div>
-                  )}
-                </div>
 
-                {/* RIGHT SIDE ACTIONS */}
-                <div style={styles.actionsSection}>
-                  <textarea
-                    placeholder="Add resolution remark before closing ticket..."
-                    value={remarks[t.TicketID] || ""}
-                    onChange={(e) => updateRemark(t.TicketID, e.target.value)}
-                    disabled={processing[t.TicketID]}
-                    style={styles.remarkInput}
-                    rows={3}
-                  />
+                    <div style={styles.infoRow}>
+                      <strong>Issue:</strong> {t.IssueDetails}
+                    </div>
 
-                  <div style={styles.actionButtons}>
-                    {/* 1️⃣ START WORK: Only Open */}
+                    <div style={{
+                      ...styles.statusBadge,
+                      color: getStatusColor(t.Status),
+                      backgroundColor: getStatusColor(t.Status) + "20"
+                    }}>
+                      {getStatusIcon(t.Status)} {t.Status}
+                    </div>
+
+                    {t.InProgress_Date && <div style={styles.timestamp}>🚀 {formatIstDate(t.InProgress_Date)}</div>}
+                    {t.Pending_Date && <div style={styles.timestamp}>⏳ {formatIstDate(t.Pending_Date)}</div>}
+                    {t.Resolved_Date && <div style={styles.timestamp}>✅ {formatIstDate(t.Resolved_Date)}</div>}
+                  </div>
+
+                  {/* RIGHT SIDE ACTIONS */}
+                  <div style={styles.actionsSection}>
+                    <textarea
+                      placeholder="Add remark..."
+                      value={remarks[t.TicketID] || ""}
+                      onChange={(e) => updateRemark(t.TicketID, e.target.value)}
+                      style={styles.remarkInput}
+                    />
+
                     <button
                       onClick={() => updateStatus(t.TicketID, "InProgress")}
                       disabled={t.Status !== "Open" || processing[t.TicketID]}
@@ -499,7 +567,6 @@ export default function EngineerDashboard() {
                       {processing[t.TicketID] ? "⏳ Processing..." : "⚙️ Start Work"}
                     </button>
 
-                    {/* 2️⃣ WAIT CUSTOMER: Only InProgress */}
                     <button
                       onClick={() => updateStatus(t.TicketID, "Pending")}
                       disabled={t.Status !== "InProgress" || processing[t.TicketID]}
@@ -511,31 +578,26 @@ export default function EngineerDashboard() {
                     >
                       {processing[t.TicketID] ? "⏳ Processing..." : "📞 Wait Customer"}
                     </button>
+
+                    <button
+                      onClick={() => resolveTicket(t.TicketID)}
+                      disabled={
+                        !remarks[t.TicketID]?.trim() ||
+                        (t.Status !== "InProgress" && t.Status !== "Pending") ||
+                        processing[t.TicketID]
+                      }
+                      style={{ ...styles.resolveButton, background: "#10b981" }}
+                    >
+                      ✅ Resolve
+                    </button>
                   </div>
 
-                  {/* 3️⃣ RESOLVE: Only Pending + Remark */}
-                  <button
-                    onClick={() => resolveTicket(t.TicketID)}
-                    disabled={
-                      t.Status !== "Pending" ||
-                      !remarks[t.TicketID]?.trim() ||
-                      processing[t.TicketID]
-                    }
-                    style={{
-                      ...styles.resolveButton,
-                      background: t.Status === "Pending" && remarks[t.TicketID]?.trim() && !processing[t.TicketID]
-                        ? "#10b981" : "#9ca3af",
-                      opacity: (t.Status === "Pending" && remarks[t.TicketID]?.trim() && !processing[t.TicketID])
-                        ? 1 : 0.6
-                    }}
-                  >
-                    {processing[t.TicketID] ? "⏳ Processing..." : "✅ Resolve Ticket"}
-                  </button>
                 </div>
               </div>
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
+
       )}
     </div>
   );

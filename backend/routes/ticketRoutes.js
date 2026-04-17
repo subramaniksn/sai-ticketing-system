@@ -261,17 +261,17 @@ router.put("/resolve/:id", verifyToken, async (req, res) => {
 
     const result = await pool.query(
       `UPDATE "Tickets"
-       SET "Status"='Resolved',
-           "Resolved_Date"=NOW(),
-           "Remark"=$1
-       WHERE "TicketID"=$2
-         AND "AssignedTo"=$3
-         AND "Status"='Pending'`,
+      SET "Status"='Resolved',
+          "Resolved_Date"=NOW(),
+          "Remark"=$1
+      WHERE "TicketID"=$2
+        AND "AssignedTo"=$3
+        AND "Status" IN ('InProgress','Pending')`,
       [remark, ticketId, req.user.email]
     );
 
     if (result.rowCount === 0) {
-      return res.status(404).json({ msg: "Ticket must be Pending" });
+      return res.status(404).json({ msg: "Ticket must be InProgress or Pending" });
     }
 
     res.json({ msg: "Ticket Resolved Successfully ✅" });
