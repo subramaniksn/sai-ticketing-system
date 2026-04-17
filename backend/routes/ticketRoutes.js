@@ -97,8 +97,26 @@ router.get("/all", verifyToken, async (req, res) => {
     }
 
     const result = await pool.query(
-      `SELECT * FROM "Tickets"
-       ORDER BY "CreatedTime" DESC`
+      `SELECT
+        "TicketID",
+        "TicketNo",
+        "CustomerName",
+        "SiteName",
+        "IssueDetails",
+        "AssignedTo",
+        "Status",
+        "Remark",
+        "CreatedTime"::timestamptz AT TIME ZONE 'Asia/Kolkata' AS "CreatedTime",
+        "ResolvedTime"::timestamptz AT TIME ZONE 'Asia/Kolkata' AS "ResolvedTime",
+        "Escalated",
+        "InProgress_Date"::timestamptz AT TIME ZONE 'Asia/Kolkata' AS "InProgress_Date",
+        "Pending_Date"::timestamptz AT TIME ZONE 'Asia/Kolkata' AS "Pending_Date",
+        "Resolved_Date"::timestamptz AT TIME ZONE 'Asia/Kolkata' AS "Resolved_Date",
+        "priority",
+        "AmcCustomerId",
+        "TicketType"
+      FROM "Tickets"
+      ORDER BY "CreatedTime"::timestamptz AT TIME ZONE 'Asia/Kolkata' DESC;`
     );
 
     res.json(result.rows);
@@ -140,9 +158,27 @@ router.get("/mytickets", verifyToken, async (req, res) => {
     }
 
     const result = await pool.query(
-      `SELECT * FROM "Tickets"
-       WHERE "AssignedTo" = $1
-       ORDER BY "CreatedTime" DESC`,
+      `SELECT 
+        "TicketID",
+        "TicketNo",
+        "CustomerName",
+        "SiteName",
+        "IssueDetails",
+        "AssignedTo",
+        "Status",
+        "Remark",
+        "CreatedTime"::timestamptz AT TIME ZONE 'Asia/Kolkata' AS "CreatedTime",
+        "ResolvedTime"::timestamptz AT TIME ZONE 'Asia/Kolkata' AS "ResolvedTime",
+        "Escalated",
+        "InProgress_Date"::timestamptz AT TIME ZONE 'Asia/Kolkata' AS "InProgress_Date",
+        "Pending_Date"::timestamptz AT TIME ZONE 'Asia/Kolkata' AS "Pending_Date",
+        "Resolved_Date"::timestamptz AT TIME ZONE 'Asia/Kolkata' AS "Resolved_Date",
+        "priority",
+        "AmcCustomerId",
+        "TicketType"
+      FROM "Tickets"
+      WHERE "AssignedTo" = $1
+      ORDER BY "CreatedTime"::timestamptz AT TIME ZONE 'Asia/Kolkata' DESC`,
       [req.user.email]
     );
 
@@ -255,8 +291,26 @@ router.get("/escalated", verifyToken, async (req, res) => {
     }
 
     const result = await pool.query(
-      `SELECT * FROM "Tickets"
-       ORDER BY "CreatedTime" DESC`
+      `SELECT 
+      "TicketID",
+      "TicketNo",
+      "CustomerName",
+      "SiteName",
+      "IssueDetails",
+      "AssignedTo",
+      "Status",
+      "Remark",
+      "CreatedTime"::timestamptz AT TIME ZONE 'Asia/Kolkata' AS "CreatedTime",
+      "ResolvedTime"::timestamptz AT TIME ZONE 'Asia/Kolkata' AS "ResolvedTime",
+      "Escalated",
+      "InProgress_Date"::timestamptz AT TIME ZONE 'Asia/Kolkata' AS "InProgress_Date",
+      "Pending_Date"::timestamptz AT TIME ZONE 'Asia/Kolkata' AS "Pending_Date",
+      "Resolved_Date"::timestamptz AT TIME ZONE 'Asia/Kolkata' AS "Resolved_Date",
+      "priority",
+      "AmcCustomerId",
+      "TicketType"
+    FROM "Tickets"
+    ORDER BY "CreatedTime"::timestamptz AT TIME ZONE 'Asia/Kolkata' DESC`
     );
 
     res.json(result.rows);
@@ -266,7 +320,9 @@ router.get("/escalated", verifyToken, async (req, res) => {
     res.status(500).json({ msg: "Failed to load tickets" });
   }
 });
-// ✅ COMPLETE FILTERED DOWNLOAD ROUTE (All Roles)
+
+const { Parser } = require('json2csv');
+
 router.get("/download", verifyToken, async (req, res) => {
   try {
     let query = `
@@ -279,35 +335,37 @@ router.get("/download", verifyToken, async (req, res) => {
         "AssignedTo",
         "Status",
         "Remark",
-        "CreatedTime"::text as "CreatedTime",
-        COALESCE("ResolvedTime"::text, '') as "ResolvedTime",
+
+        -- ✅ FIXED DATE CONVERSION (NO ERROR)
+        COALESCE(("CreatedTime" AT TIME ZONE 'Asia/Kolkata')::text, '') as "CreatedTime",
+        COALESCE(("ResolvedTime" AT TIME ZONE 'Asia/Kolkata')::text, '') as "ResolvedTime",
+
         CASE WHEN "Escalated" THEN 'Yes' ELSE 'No' END as "Escalated",
-        COALESCE("InProgress_Date"::text, '') as "InProgress_Date",
-        COALESCE("Pending_Date"::text, '') as "Pending_Date",
-        COALESCE("Resolved_Date"::text, '') as "Resolved_Date",
+
+        COALESCE(("InProgress_Date" AT TIME ZONE 'Asia/Kolkata')::text, '') as "InProgress_Date",
+        COALESCE(("Pending_Date" AT TIME ZONE 'Asia/Kolkata')::text, '') as "Pending_Date",
+        COALESCE(("Resolved_Date" AT TIME ZONE 'Asia/Kolkata')::text, '') as "Resolved_Date",
+
         "priority",
         COALESCE("AmcCustomerId"::text, '') as "AmcCustomerId",
         "TicketType"
+
       FROM "Tickets"
       WHERE 1=1
     `;
-    
+
     const params = [];
     let paramIndex = 1;
 
-    // 🔥 DATE FILTERING
-    if (req.query.startDate) {
-      query += ` AND DATE("CreatedTime") >= $${paramIndex}`;
-      params.push(req.query.startDate);
-      paramIndex++;
-    }
-    if (req.query.endDate) {
-      query += ` AND DATE("CreatedTime") <= $${paramIndex}`;
-      params.push(req.query.endDate);
-      paramIndex++;
+    // ✅ DATE FILTER (FIXED)
+    if (req.query.startDate && req.query.endDate) {
+      query += ` AND "CreatedTime" BETWEEN $${paramIndex} AND $${paramIndex + 1}`;
+      params.push(req.query.startDate + " 00:00:00");
+      params.push(req.query.endDate + " 23:59:59");
+      paramIndex += 2;
     }
 
-    // 🔥 CUSTOMER FILTERING
+    // ✅ CUSTOMER FILTER
     if (req.query.customer && req.query.customer !== '') {
       query += ` AND "CustomerName" ILIKE $${paramIndex}`;
       params.push(`%${req.query.customer}%`);
@@ -318,44 +376,64 @@ router.get("/download", verifyToken, async (req, res) => {
 
     const result = await pool.query(query, params);
 
-    // ✅ CREATE CSV
-    const csvWriter = createCsvWriter({
-      path: 'tickets_export.csv',
-      header: [
-        {id: 'TicketID', title: 'Ticket ID'},
-        {id: 'TicketNo', title: 'Ticket No'},
-        {id: 'CustomerName', title: 'Customer'},
-        {id: 'SiteName', title: 'Site'},
-        {id: 'IssueDetails', title: 'Issue Details'},
-        {id: 'AssignedTo', title: 'Assigned To'},
-        {id: 'Status', title: 'Status'},
-        {id: 'Remark', title: 'Remark'},
-        {id: 'CreatedTime', title: 'Created Time'},
-        {id: 'ResolvedTime', title: 'Resolved Time'},
-        {id: 'Escalated', title: 'Escalated'},
-        {id: 'InProgress_Date', title: 'In Progress Date'},
-        {id: 'Pending_Date', title: 'Pending Date'},
-        {id: 'Resolved_Date', title: 'Resolved Date'},
-        {id: 'priority', title: 'Priority'},
-        {id: 'AmcCustomerId', title: 'AMC ID'},
-        {id: 'TicketType', title: 'Ticket Type'}
-      ]
-    });
+    // ✅ HANDLE EMPTY DATA
+    if (!result.rows || result.rows.length === 0) {
+      return res.status(200).send("No data available");
+    }
 
-    await csvWriter.writeRecords(result.rows);
+    // ✅ CONVERT JSON → CSV
+    const json2csvParser = new Parser();
+    const csv = json2csvParser.parse(result.rows);
 
-    // ✅ SEND DOWNLOAD
-    res.download('tickets_export.csv', `SAI_Tickets_${req.query.startDate || 'all'}_to_${req.query.endDate || 'all'}.csv`, (err) => {
-      if (err) {
-        console.error('Download error:', err);
-      }
-      // ✅ CLEANUP TEMP FILE
-      fs.unlinkSync('tickets_export.csv');
-    });
+    // ✅ SEND CSV FILE
+    res.header('Content-Type', 'text/csv');
+    res.attachment(`SAI_Tickets_${req.query.startDate || 'all'}_to_${req.query.endDate || 'all'}.csv`);
+
+    return res.send(csv);
 
   } catch (err) {
     console.error('Download error:', err);
     res.status(500).json({ msg: "Failed to download tickets" });
+  }
+});
+
+router.put("/reassign/:id", verifyToken, async (req, res) => {
+  try {
+    if (req.user.role !== "Dispatcher") {
+      return res.status(403).json({ msg: "Only Dispatcher can reassign" });
+    }
+
+    const { assignedTo } = req.body;
+
+    await pool.query(
+      `UPDATE "Tickets"
+       SET "AssignedTo" = $1
+       WHERE "TicketID" = $2`,
+      [assignedTo, req.params.id]
+    );
+
+    res.json({ msg: "✅ Ticket reassigned successfully" });
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ msg: "Error updating ticket" });
+  }
+});
+
+// ✅ GET Engineers List
+router.get("/users/engineers", verifyToken, async (req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT "Email" 
+      FROM public."Users" 
+      WHERE "Role" = 'Engineer'
+      ORDER BY "UserID" ASC
+    `);
+
+    res.json(result.rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ msg: "Failed to fetch engineers" });
   }
 });
 

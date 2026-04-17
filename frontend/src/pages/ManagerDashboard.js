@@ -4,9 +4,13 @@ import API from "../api";
 
 const parseSqlDate = (dateString) => {
   if (!dateString || typeof dateString !== 'string') return null;
+
   try {
-    const cleanDate = dateString.split('.')[0].replace(' ', 'T');
+    // ✅ Convert SQL datetime to ISO UTC format
+    const cleanDate = dateString.split('.')[0].replace(' ', 'T') + 'Z';
+
     const date = new Date(cleanDate);
+
     return isNaN(date.getTime()) ? null : date;
   } catch {
     return null;
@@ -329,36 +333,55 @@ export default function ManagerDashboard() {
       alert("Please select both start and end dates");
       return;
     }
-    if (new Date(startDate) > new Date(endDate)) {
-      alert("Start date cannot be after end date");
-      return;
-    }
 
     try {
       setDownloadLoading(true);
+
       const token = localStorage.getItem("token");
-      const params = new URLSearchParams({
-        startDate: startDate,
-        endDate: endDate,
-        customer: selectedCustomer === 'all' ? '' : selectedCustomer
+
+      const res = await API.get("/tickets/download", {
+        params: {
+          startDate,
+          endDate,
+          customer: selectedCustomer === "all" ? "" : selectedCustomer
+        },
+        headers: {
+          Authorization: `Bearer ${token}`
+        },
+        responseType: "blob"
       });
 
-      const res = await API.get(`/tickets/download?${params.toString()}`, {
-        headers: { Authorization: `Bearer ${token}` },
-        responseType: 'blob'
-      });
+      // ✅ Check if response is valid
+      if (!res.data) {
+        throw new Error("Empty file");
+      }
 
-      const url = window.URL.createObjectURL(new Blob([res.data]));
-      const link = document.createElement('a');
+      const blob = new Blob([res.data], { type: "text/csv" });
+      const url = window.URL.createObjectURL(blob);
+
+      const link = document.createElement("a");
       link.href = url;
-      link.setAttribute('download', `SAI_Tickets_${startDate}_to_${endDate}.csv`);
+      link.download = `SAI_Tickets_${startDate}_to_${endDate}.csv`;
       document.body.appendChild(link);
       link.click();
+
       link.remove();
       window.URL.revokeObjectURL(url);
+
     } catch (err) {
       console.error("Download error:", err);
-      alert("Failed to download report");
+
+      // 🔥 Show real backend error
+      if (err.response?.data) {
+        const reader = new FileReader();
+        reader.onload = () => {
+          alert("❌ " + reader.result);
+        };
+        reader.readAsText(err.response.data);
+      } else {
+        alert("❌ Download failed");
+      }
+
     } finally {
       setDownloadLoading(false);
     }
@@ -388,7 +411,16 @@ export default function ManagerDashboard() {
       </div>
     );
   }
+  const th = {
+    padding: "12px",
+    textAlign: "left",
+    fontSize: "14px"
+  };
 
+  const td = {
+    padding: "12px",
+    fontSize: "14px"
+  };
   return (
     <div style={styles.container}>
       {/* DOWNLOAD PANEL */}
@@ -517,74 +549,53 @@ export default function ManagerDashboard() {
           <h3 style={{ margin: 0, color: "#6b7280" }}>No escalated tickets</h3>
         </div>
       ) : (
-        <div style={styles.ticketGrid}>
-          {tickets.map((t) => (
-            <div key={t.TicketID} style={styles.ticketCard}>
-              <div style={styles.ticketHeader}>
-                <h3 style={styles.ticketNumber}>🎫 {t.TicketNo}</h3>
-                <span style={{
-                  ...styles.priorityBadge,
-                  background: t.priority === "High" ? "#ef4444" : 
-                  t.priority === "Medium" ? "#f59e0b" : 
-                  t.priority === "Low" ? "#10b981" : "#6b7280"
-                }}>
-                  {t.priority || 'Normal'}
-                </span>
-              </div>
+        <div style={{
+          maxHeight: "400px", overflowY: "auto", background: "white", borderRadius: "12px"  }}>
+          <table style={{ width: "100%", borderCollapse: "collapse" }}>
+            <thead>
+              <tr style={{ background: "#1976d2", color: "white" }}>
+                <th style={th}>Ticket No</th>
+                <th style={th}>Customer</th>
+                <th style={th}>Site</th>
+                <th style={th}>Engineer</th>
+                <th style={th}>Priority</th>
+                <th style={th}>Status</th>
+                <th style={th}>Created</th>
+                <th style={th}>Duration</th>
+              </tr>
+            </thead>
 
-              <div style={styles.infoGrid}>
-                <div style={styles.infoItem}>
-                  <span style={styles.infoLabel}>Customer</span>
-                  <span style={styles.infoValue}>{t.CustomerName || 'N/A'}</span>
-                </div>
-                <div style={styles.infoItem}>
-                  <span style={styles.infoLabel}>Site</span>
-                  <span style={styles.infoValue}>{t.SiteName || 'N/A'}</span>
-                </div>
-                <div style={styles.infoItem}>
-                  <span style={styles.infoLabel}>Engineer</span>
-                  <span style={styles.infoValue}>{t.AssignedTo?.split('@')[0] || 'N/A'}</span>
-                </div>
-                <div style={styles.infoItem}>
-                  <span style={styles.infoLabel}>Created</span>
-                  <span style={styles.infoValue}>{formatIstDate(t.CreatedTime)}</span>
-                </div>
-              </div>
+            <tbody>
+              {tickets.map((t) => (
+                <tr key={t.TicketID} style={{ borderBottom: "1px solid #eee" }}>
+                  <td style={td}>{t.TicketNo}</td>
+                  <td style={td}>{t.CustomerName || 'N/A'}</td>
+                  <td style={td}>{t.SiteName || 'N/A'}</td>
+                  <td style={td}>{t.AssignedTo?.split('@')[0] || 'N/A'}</td>
+                  <td style={td}>{t.priority}</td>
 
-              <div style={{
-                ...styles.statusDisplay,
-                color: getStatusColor(t.Status),
-                backgroundColor: getStatusColor(t.Status) + "15"
-              }}>
-                📍 {getStatusIcon(t.Status)} {t.Status}
-              </div>
+                  <td style={td}>
+                    <span style={{
+                      padding: "6px 10px",
+                      borderRadius: "20px",
+                      background: getStatusColor(t.Status) + "20",
+                      color: getStatusColor(t.Status),
+                      fontWeight: "600"
+                    }}>
+                      {t.Status}
+                    </span>
+                  </td>
 
-              <div style={styles.durationRow}>
-                {t.InProgress_Date && (
-                  <div style={styles.durationItem}>
-                    <div style={styles.durationLabel}>⏱️ In Progress</div>
-                    <div style={styles.durationValue}>
-                      {calculateDuration(t.CreatedTime, t.InProgress_Date)}
-                    </div>
-                  </div>
-                )}
-                {t.Pending_Date && !t.Resolved_Date && (
-                  <div style={styles.durationItem}>
-                    <div style={styles.durationLabel}>⏳ Pending</div>
-                    <div style={styles.durationValue}>
-                      {calculateDuration(t.Pending_Date)}
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              <div style={styles.issueDetails}>
-                <strong style={{ fontSize: "13px", color: "#1e40af", marginBottom: "6px", display: "block" }}>
-                  📋 {t.IssueDetails || 'No details'}
-                </strong>
-              </div>
-            </div>
-          ))}
+                  <td style={td}>{formatIstDate(t.CreatedTime)}</td>
+                  <td style={td}>
+                    {t.Status === "Resolved"
+                      ? calculateDuration(t.CreatedTime, t.Resolved_Date)
+                      : calculateDuration(t.CreatedTime)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
     </div>

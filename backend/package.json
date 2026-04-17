@@ -9,6 +9,7 @@
     "csv-writer": "^1.6.0",
     "dotenv": "^17.2.3",
     "express": "^4.18.2",
+    "json2csv": "^6.0.0-alpha.2",
     "jsonwebtoken": "^9.0.0",
     "pg": "^8.18.0",
     "tedious": "^19.2.0"

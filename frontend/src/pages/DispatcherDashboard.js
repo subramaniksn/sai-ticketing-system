@@ -377,13 +377,24 @@ const styles = {
 
 // ✅ DATETIME UTILITY
 const formatIstDate = (dateString) => {
-  if (dateString && typeof dateString === 'string') {
-    return dateString.substring(0, 19);
-  }
-  return dateString || '';
+  if (!dateString) return '';
+
+  const date = new Date(dateString);
+
+  return date.toLocaleString("en-IN", {
+    timeZone: "Asia/Kolkata",
+    year: "numeric",
+    month: "short",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: true
+  });
 };
 
 export default function DispatcherDashboard() {
+  const [selectedTicket, setSelectedTicket] = useState(null);
   const [tickets, setTickets] = useState([]);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
@@ -401,7 +412,8 @@ export default function DispatcherDashboard() {
     "lakshman@saiautomation.co.in",
     "sujith@saiautomation.co.in",
     "mani@saiautomation.co.in",
-    "Jayasankar@saiautomation.co.in"
+    "Jayasankar@saiautomation.co.in",
+    "tinu@saiautomation.co.in"
   ];
 
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
@@ -599,59 +611,101 @@ useEffect(() => {
     </div>
   );
 
-  const TicketCard = ({ ticket, getStatusColor, getStatusIcon, formatIstDate }) => (
-    <div style={styles.ticketCard}>
-      <div style={styles.ticketHeader}>
-        <div style={styles.ticketNumber}>🎫 {ticket.TicketNo}</div>
-        <span style={{
-          ...styles.priorityBadge,
-          background: ticket.priority === "High" ? "#e20022" : 
-           ticket.priority === "Medium" ? "#f15f13" : 
-           ticket.priority === "Low" ? "#39c62c" : "#95a5a6"
-        }}>
-          {ticket.Priority}
-        </span>
-      </div>
-      
-      <div style={styles.ticketInfo}>
-        <div style={styles.infoItem}>
-          <span style={styles.infoLabel}>Customer</span>
-          <span style={styles.infoValue}>{ticket.CustomerName}</span>
-        </div>
-        <div style={styles.infoItem}>
-          <span style={styles.infoLabel}>Site</span>
-          <span style={styles.infoValue}>{ticket.SiteName}</span>
-        </div>
-        <div style={styles.infoItem}>
-          <span style={styles.infoLabel}>Engineer</span>
-          <span style={styles.infoValue}>{ticket.AssignedTo?.split('@')[0]}</span>
-        </div>
-      </div>
+  const TicketCard = ({ ticket }) => (
+  <div style={styles.ticketCard}>
+    
+    <div style={styles.ticketHeader}>
+      <div style={styles.ticketNumber}>🎫 {ticket.TicketNo}</div>
 
-      <div style={{
-        ...styles.statusDisplay,
-        color: getStatusColor(ticket.Status),
-        backgroundColor: getStatusColor(ticket.Status) + "20"
+      <span style={{
+        ...styles.priorityBadge,
+        background:
+          ticket.priority === "High" ? "#e20022" :
+          ticket.priority === "Medium" ? "#f15f13" :
+          ticket.priority === "Low" ? "#39c62c" : "#95a5a6"
       }}>
-        📍 {getStatusIcon(ticket.Status)} {ticket.Status}
+        {ticket.priority}
+      </span>
+    </div>
+
+    <div style={styles.ticketInfo}>
+      <div style={styles.infoItem}>
+        <span style={styles.infoLabel}>Customer</span>
+        <span style={styles.infoValue}>{ticket.CustomerName}</span>
       </div>
 
-      {ticket.InProgress_Date && (
-        <div style={styles.timestamp}>🚀 Started: {formatIstDate(ticket.InProgress_Date)}</div>
-      )}
-      {ticket.Pending_Date && (
-        <div style={styles.timestamp}>⏳ Pending: {formatIstDate(ticket.Pending_Date)}</div>
-      )}
-      {ticket.Resolved_Date && (
-        <div style={styles.timestamp}>✅ Resolved: {formatIstDate(ticket.Resolved_Date)}</div>
-      )}
+      <div style={styles.infoItem}>
+        <span style={styles.infoLabel}>Site</span>
+        <span style={styles.infoValue}>{ticket.SiteName}</span>
+      </div>
 
-      <div style={styles.issueRow}>
-        <span style={styles.issueLabel}>Issue:</span>
-        <span style={styles.issueText}>{ticket.IssueDetails}</span>
+      {/* 🔥 REASSIGN DROPDOWN */}
+      <div style={styles.infoItem}>
+        <span style={styles.infoLabel}>Engineer</span>
+
+        <select
+          value={ticket.AssignedTo}
+          onChange={(e) =>
+            handleReassign(ticket.TicketID, e.target.value)
+          }
+          style={{ padding: "8px", borderRadius: "8px" }}
+        >
+          {engineers.map(e => (
+            <option key={e} value={e}>
+              {e.split('@')[0]}
+            </option>
+          ))}
+        </select>
       </div>
     </div>
-  );
+
+    <div style={{
+      ...styles.statusDisplay,
+      color: getStatusColor(ticket.Status),
+      backgroundColor: getStatusColor(ticket.Status) + "20"
+    }}>
+      📍 {getStatusIcon(ticket.Status)} {ticket.Status}
+    </div>
+
+    {/* 🔥 CREATED DATE */}
+    {ticket.CreatedTime && (
+      <div style={styles.timestamp}>
+        🕒 Created: {formatIstDate(ticket.CreatedTime)}
+      </div>
+    )}
+
+    {ticket.InProgress_Date && (
+      <div style={styles.timestamp}>
+        🚀 Started: {formatIstDate(ticket.InProgress_Date)}
+      </div>
+    )}
+
+    {ticket.Pending_Date && (
+      <div style={styles.timestamp}>
+        ⏳ Pending: {formatIstDate(ticket.Pending_Date)}
+      </div>
+    )}
+
+    {ticket.Resolved_Date && (
+      <div style={styles.timestamp}>
+        ✅ Resolved: {formatIstDate(ticket.Resolved_Date)}
+      </div>
+    )}
+
+    <div style={styles.issueRow}>
+      <span style={styles.issueLabel}>Issue:</span>
+      <span style={styles.issueText}>{ticket.IssueDetails}</span>
+    </div>
+
+    {/* 🔥 NEW: REMARKS SECTION */}
+    {ticket.Remark && (
+      <div style={styles.issueRow}>
+        <span style={styles.issueLabel}>Remarks:</span>
+        <span style={styles.issueText}>{ticket.Remark}</span>
+      </div>
+    )}
+  </div>
+);
 
   if (loading || amcLoading) {
     return (
@@ -661,7 +715,43 @@ useEffect(() => {
       </div>
     );
   }
+const handleReassign = async (ticketId, newEngineer) => {
+  try {
+    const token = localStorage.getItem("token");
 
+    await API.put(`/tickets/reassign/${ticketId}`, {
+      assignedTo: newEngineer
+    }, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+
+    // ✅ Update UI instantly (no reload)
+    setTickets(prev =>
+      prev.map(t =>
+        t.TicketID === ticketId
+          ? { ...t, AssignedTo: newEngineer }
+          : t
+      )
+    );
+
+    alert("✅ Reassigned successfully");
+  } catch (err) {
+    console.error(err);
+    alert("❌ Failed to reassign");
+  }
+};
+
+// ✅ PUT THIS ABOVE return (inside component)
+const th = {
+  padding: "12px",
+  textAlign: "left",
+  fontSize: "14px"
+};
+
+const td = {
+  padding: "12px",
+  fontSize: "14px"
+};
   return (
     <div style={styles.container}>
       {/* Header */}
@@ -872,19 +962,128 @@ useEffect(() => {
             <p>Try adjusting search or status filter above</p>
           </div>
         ) : (
-          <div style={styles.ticketGrid}>
-            {filteredTickets.map(t => (
-              <TicketCard 
-                key={t.TicketID} 
-                ticket={t} 
-                getStatusColor={getStatusColor}
-                getStatusIcon={getStatusIcon}
-                formatIstDate={formatIstDate}
-              />
-            ))}
+          <div style={{ overflowX: "auto", overflowY: "auto", maxHeight: "350px", background: "white", borderRadius: "12px" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse" }}>
+              <thead>
+                <tr style={{ background: "#1976d2", color: "white" }}>
+                  <th style={th}>Ticket No</th>
+                  <th style={th}>Customer</th>
+                  <th style={th}>Site</th>
+                  <th style={th}>Engineer</th>
+                  <th style={th}>Priority</th>
+                  <th style={th}>Status</th>
+                  <th style={th}>Action</th>
+                </tr>
+              </thead>
+
+              <tbody>
+                {filteredTickets.map(ticket => (
+                  <tr key={ticket.TicketID} style={{ borderBottom: "1px solid #eee" }}>
+                    <td style={td}>{ticket.TicketNo}</td>
+                    <td style={td}>{ticket.CustomerName}</td>
+                    <td style={td}>{ticket.SiteName}</td>
+
+                    {/* 🔥 REASSIGN DROPDOWN */}
+                    <td style={td}>
+                      <select
+                        value={ticket.AssignedTo}
+                        onChange={(e) =>
+                          handleReassign(ticket.TicketID, e.target.value)
+                        }
+                        style={{ padding: "6px", borderRadius: "6px" }}
+                      >
+                        {engineers.map(e => (
+                          <option key={e} value={e}>
+                            {e.split("@")[0]}
+                          </option>
+                        ))}
+                      </select>
+                    </td>
+
+                    <td style={td}>{ticket.priority}</td>
+
+                    <td style={td}>
+                      <span style={{
+                        padding: "6px 10px",
+                        borderRadius: "20px",
+                        background: getStatusColor(ticket.Status) + "20",
+                        color: getStatusColor(ticket.Status),
+                        fontWeight: "600"
+                      }}>
+                        {ticket.Status}
+                      </span>
+                    </td>
+
+                    <td style={td}>
+                      <button
+                        onClick={() => setSelectedTicket(ticket)}
+                        style={{
+                          padding: "6px 12px",
+                          background: "#1976d2",
+                          color: "white",
+                          border: "none",
+                          borderRadius: "6px",
+                          cursor: "pointer"
+                        }}
+                      >
+                        👁 View
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
+          
         )}
       </div>
+      {selectedTicket && (
+      <div style={{
+        position: "fixed",
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        background: "rgba(0,0,0,0.6)",
+        display: "flex",
+        justifyContent: "center",
+        alignItems: "center",
+        zIndex: 2000
+      }}>
+        <div style={{
+          width: "90%",
+          maxWidth: "600px",
+          maxHeight: "90vh",
+          overflowY: "auto",
+          background: "white",
+          borderRadius: "16px",
+          padding: "20px",
+          position: "relative"
+        }}>
+          
+          {/* CLOSE BUTTON */}
+          <button
+            onClick={() => setSelectedTicket(null)}
+            style={{
+              position: "absolute",
+              top: "10px",
+              right: "10px",
+              background: "#dc3545",
+              color: "white",
+              border: "none",
+              padding: "6px 10px",
+              borderRadius: "6px",
+              cursor: "pointer"
+            }}
+          >
+            ❌ Close
+          </button>
+
+          {/* 🔥 REUSE YOUR CARD UI */}
+          <TicketCard ticket={selectedTicket} />
+        </div>
+      </div>
+    )}
     </div>
   );
 }
