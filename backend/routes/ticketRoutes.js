@@ -5,13 +5,15 @@ const verifyToken = require("../middleware/authMiddleware");
 const createCsvWriter = require('csv-writer').createObjectCsvWriter;
 const fs = require('fs');
 
+// ✅ NEW: WhatsApp notification
+const { notifyEngineerTicketCreated } = require('../whatsappService');
+
 // ✅ Generate Ticket No Function (PostgreSQL)
 async function generateTicketNo() {
   const now = new Date();
   const year = now.getFullYear();
   const month = String(now.getMonth() + 1).padStart(2, "0");
   
-  // 🔥 COUNT ONLY THIS MONTH'S TICKETS by TicketNo pattern
   const result = await pool.query(
     `SELECT COUNT(*) AS total
      FROM "Tickets"
@@ -26,8 +28,7 @@ async function generateTicketNo() {
 }
 
 
-
-// ✅ Dispatcher Create Ticket
+// ✅ Dispatcher Create Ticket — WITH WhatsApp notification
 router.post("/create", verifyToken, async (req, res) => {
   try {
     if (req.user.role !== "Dispatcher") {
@@ -66,8 +67,9 @@ router.post("/create", verifyToken, async (req, res) => {
     await pool.query(
       `INSERT INTO "Tickets"
        ("TicketNo","CustomerName","SiteName","IssueDetails","priority",
-        "AssignedTo","AmcCustomerId","TicketType","Status")
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'Open')`,
+        "AssignedTo","AmcCustomerId","TicketType","Status",
+        "ReminderSent","EscalationSent")
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'Open',false,false)`,
       [
         ticketNo,
         customerName,
@@ -79,6 +81,45 @@ router.post("/create", verifyToken, async (req, res) => {
         ticketType || "NON_AMC"
       ]
     );
+
+    // ✅ Fetch engineer phone and send WhatsApp
+    try {
+      const engRes = await pool.query(
+        `SELECT "Email", "Phone" FROM public."Users" WHERE "Email" = $1`,
+        [assignedTo]
+      );
+      const engineer = engRes.rows[0];
+
+      if (engineer?.Phone) {
+        const engineerName = engineer.Email.split('@')[0];
+        const createdTimeIST = new Date().toLocaleString('en-IN', {
+          timeZone: 'Asia/Kolkata',
+          hour12: true,
+          year: 'numeric', month: 'short', day: '2-digit',
+          hour: '2-digit', minute: '2-digit'
+        });
+
+        // Fire-and-forget — never blocks the API response
+        notifyEngineerTicketCreated(
+          engineer.Phone,
+          engineerName,
+          {
+            ticketNo,
+            customerName,
+            siteName,
+            issueDetails,
+            priority: priority || 'Medium',
+            createdTime: createdTimeIST
+          }
+        ).catch(err => console.error('WhatsApp notify error:', err.message));
+
+      } else {
+        console.warn(`⚠️ No phone for ${assignedTo} — WhatsApp skipped`);
+      }
+    } catch (waErr) {
+      // WhatsApp failure must never break ticket creation
+      console.error('WhatsApp lookup error:', waErr.message);
+    }
 
     res.json({ msg: "Ticket Created Successfully", ticketNo });
 
@@ -321,6 +362,8 @@ router.get("/escalated", verifyToken, async (req, res) => {
   }
 });
 
+
+// ✅ Download CSV
 const { Parser } = require('json2csv');
 
 router.get("/download", verifyToken, async (req, res) => {
@@ -335,21 +378,15 @@ router.get("/download", verifyToken, async (req, res) => {
         "AssignedTo",
         "Status",
         "Remark",
-
-        -- ✅ FIXED DATE CONVERSION (NO ERROR)
         COALESCE(("CreatedTime" AT TIME ZONE 'Asia/Kolkata')::text, '') as "CreatedTime",
         COALESCE(("ResolvedTime" AT TIME ZONE 'Asia/Kolkata')::text, '') as "ResolvedTime",
-
         CASE WHEN "Escalated" THEN 'Yes' ELSE 'No' END as "Escalated",
-
         COALESCE(("InProgress_Date" AT TIME ZONE 'Asia/Kolkata')::text, '') as "InProgress_Date",
         COALESCE(("Pending_Date" AT TIME ZONE 'Asia/Kolkata')::text, '') as "Pending_Date",
         COALESCE(("Resolved_Date" AT TIME ZONE 'Asia/Kolkata')::text, '') as "Resolved_Date",
-
         "priority",
         COALESCE("AmcCustomerId"::text, '') as "AmcCustomerId",
         "TicketType"
-
       FROM "Tickets"
       WHERE 1=1
     `;
@@ -357,7 +394,6 @@ router.get("/download", verifyToken, async (req, res) => {
     const params = [];
     let paramIndex = 1;
 
-    // ✅ DATE FILTER (FIXED)
     if (req.query.startDate && req.query.endDate) {
       query += ` AND "CreatedTime" BETWEEN $${paramIndex} AND $${paramIndex + 1}`;
       params.push(req.query.startDate + " 00:00:00");
@@ -365,7 +401,6 @@ router.get("/download", verifyToken, async (req, res) => {
       paramIndex += 2;
     }
 
-    // ✅ CUSTOMER FILTER
     if (req.query.customer && req.query.customer !== '') {
       query += ` AND "CustomerName" ILIKE $${paramIndex}`;
       params.push(`%${req.query.customer}%`);
@@ -376,19 +411,15 @@ router.get("/download", verifyToken, async (req, res) => {
 
     const result = await pool.query(query, params);
 
-    // ✅ HANDLE EMPTY DATA
     if (!result.rows || result.rows.length === 0) {
       return res.status(200).send("No data available");
     }
 
-    // ✅ CONVERT JSON → CSV
     const json2csvParser = new Parser();
     const csv = json2csvParser.parse(result.rows);
 
-    // ✅ SEND CSV FILE
     res.header('Content-Type', 'text/csv');
     res.attachment(`SAI_Tickets_${req.query.startDate || 'all'}_to_${req.query.endDate || 'all'}.csv`);
-
     return res.send(csv);
 
   } catch (err) {
@@ -397,6 +428,8 @@ router.get("/download", verifyToken, async (req, res) => {
   }
 });
 
+
+// ✅ Reassign Ticket
 router.put("/reassign/:id", verifyToken, async (req, res) => {
   try {
     if (req.user.role !== "Dispatcher") {
@@ -419,6 +452,7 @@ router.put("/reassign/:id", verifyToken, async (req, res) => {
     res.status(500).json({ msg: "Error updating ticket" });
   }
 });
+
 
 // ✅ GET Engineers List
 router.get("/users/engineers", verifyToken, async (req, res) => {

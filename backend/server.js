@@ -4,20 +4,18 @@ const cors = require("cors");
 
 const authRoutes = require("./routes/authRoutes");
 const ticketRoutes = require("./routes/ticketRoutes");
-const runEscalationJob = require("./escalationJob");
+const { startEscalationJob } = require("./escalationJob");      // ✅ FIXED
+const { connectToWhatsApp } = require("./whatsappService");     // ✅ NEW
 
 const app = express();
 
 app.use(cors());
 app.use(express.json());
 
-// 🔁 Escalation job (runs every 5 mins)
-setInterval(runEscalationJob, 5 * 60 * 1000);
-
 // ✅ ROUTES
 app.use("/api/auth", authRoutes);
-app.use("/api/tickets", ticketRoutes);  // main ticket routes
-app.use("/api", ticketRoutes);          // for /api/users/engineers
+app.use("/api/tickets", ticketRoutes);
+app.use("/api", ticketRoutes);
 
 // 🌐 Production build
 if (process.env.NODE_ENV === 'production') {
@@ -32,4 +30,10 @@ if (process.env.NODE_ENV === 'production') {
 const PORT = process.env.PORT || 5001;
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`✅ Ticketing Server running on port ${PORT}`);
+
+  // ✅ Start WhatsApp connection
+  connectToWhatsApp();
+
+  // ✅ Start escalation cron (every 5 min)
+  startEscalationJob();
 });

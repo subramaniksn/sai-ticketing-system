@@ -4,35 +4,44 @@ import API from "../api";
 
 const parseSqlDate = (dateString) => {
   if (!dateString || typeof dateString !== 'string') return null;
-
   try {
-    // ✅ Convert SQL datetime to ISO UTC format
+    // SQL datetime "2026-05-18 03:23:00" → treat as UTC
     const cleanDate = dateString.split('.')[0].replace(' ', 'T') + 'Z';
-
     const date = new Date(cleanDate);
-
     return isNaN(date.getTime()) ? null : date;
   } catch {
     return null;
   }
 };
 
+// ✅ IST formatter — same as DispatcherDashboard
 const formatIstDate = (dateString) => {
-  const date = parseSqlDate(dateString);
-  if (!date) return 'N/A';
-  return date.toLocaleString('en-IN', { 
+  if (!dateString) return 'N/A';
+  // Handle both SQL "2026-05-18 03:23:00" and ISO strings
+  const normalized = typeof dateString === 'string' && !dateString.includes('T')
+    ? dateString.replace(' ', 'T') + 'Z'
+    : dateString;
+  const date = new Date(normalized);
+  if (isNaN(date.getTime())) return 'N/A';
+  return date.toLocaleString('en-IN', {
     timeZone: 'Asia/Kolkata',
-    month: 'short', day: 'numeric', 
-    hour: '2-digit', minute: '2-digit'
+    year: 'numeric',
+    month: 'short',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: true
   });
 };
 
 const getStatusColor = (status) => ({
-  "Open": "#e74c3c", "InProgress": "#f39c12", "Pending": "#3498db", "Resolved": "#27ae60"
+  "Open": "#e74c3c", "InProgress": "#f39c12", "Pending": "#3498db",
+  "Resolved": "#27ae60", "Escalated": "#9b59b6"
 }[status] || "#95a5a6");
 
 const getStatusIcon = (status) => ({
-  "Open": "🔴", "InProgress": "🟡", "Pending": "🔵", "Resolved": "🟢"
+  "Open": "🔴", "InProgress": "🟡", "Pending": "🔵", "Resolved": "🟢", "Escalated": "🟣"
 }[status] || "📌");
 
 const calculateDuration = (start, end = null) => {
@@ -47,7 +56,7 @@ const calculateDuration = (start, end = null) => {
 };
 
 const styles = {
-  container: { 
+  container: {
     minHeight: "100vh",
     background: "linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%)",
     fontFamily: "'Segoe UI', Tahoma, sans-serif",
@@ -69,11 +78,7 @@ const styles = {
     color: "#1a1a1a",
     textAlign: "center"
   },
-  headerStats: {
-    fontSize: "14px",
-    color: "#666",
-    textAlign: "center"
-  },
+  headerStats: { fontSize: "14px", color: "#666", textAlign: "center" },
   downloadPanel: {
     background: "white",
     padding: "25px",
@@ -83,13 +88,8 @@ const styles = {
     border: "2px solid #e2e8f0"
   },
   downloadTitle: {
-    fontSize: "20px",
-    fontWeight: "800",
-    color: "#1e293b",
-    marginBottom: "20px",
-    display: "flex",
-    alignItems: "center",
-    gap: "12px"
+    fontSize: "20px", fontWeight: "800", color: "#1e293b",
+    marginBottom: "20px", display: "flex", alignItems: "center", gap: "12px"
   },
   filterRow: {
     display: "grid",
@@ -98,55 +98,29 @@ const styles = {
     marginBottom: "25px",
     alignItems: "end"
   },
-  filterGroup: {
-    display: "flex",
-    flexDirection: "column",
-    gap: "6px"
-  },
+  filterGroup: { display: "flex", flexDirection: "column", gap: "6px" },
   filterLabel: {
-    fontSize: "13px",
-    fontWeight: "700",
-    color: "#374151",
-    textTransform: "uppercase",
-    letterSpacing: "0.5px"
+    fontSize: "13px", fontWeight: "700", color: "#374151",
+    textTransform: "uppercase", letterSpacing: "0.5px"
   },
   dateInput: {
-    padding: "12px 16px",
-    border: "2px solid #e2e8f0",
-    borderRadius: "10px",
-    fontSize: "14px",
-    background: "white",
-    transition: "all 0.2s"
+    padding: "12px 16px", border: "2px solid #e2e8f0",
+    borderRadius: "10px", fontSize: "14px", background: "white", transition: "all 0.2s"
   },
   customerSelect: {
-    padding: "12px 12px 12px 16px",
-    border: "2px solid #e2e8f0",
-    borderRadius: "10px",
-    fontSize: "14px",
-    background: "white",
-    transition: "all 0.2s"
+    padding: "12px 12px 12px 16px", border: "2px solid #e2e8f0",
+    borderRadius: "10px", fontSize: "14px", background: "white", transition: "all 0.2s"
   },
   downloadBtn: {
     padding: "16px 32px",
     background: "linear-gradient(135deg, #10b981, #059669)",
-    color: "white",
-    border: "none",
-    borderRadius: "12px",
-    fontSize: "16px",
-    fontWeight: "800",
-    cursor: "pointer",
+    color: "white", border: "none", borderRadius: "12px",
+    fontSize: "16px", fontWeight: "800", cursor: "pointer",
     boxShadow: "0 8px 25px rgba(16, 185, 129, 0.3)",
-    transition: "all 0.2s",
-    whiteSpace: "nowrap",
-    display: "flex",
-    alignItems: "center",
-    gap: "10px"
+    transition: "all 0.2s", whiteSpace: "nowrap",
+    display: "flex", alignItems: "center", gap: "10px"
   },
-  downloadBtnDisabled: {
-    background: "#9ca3af",
-    cursor: "not-allowed",
-    boxShadow: "none"
-  },
+  downloadBtnDisabled: { background: "#9ca3af", cursor: "not-allowed", boxShadow: "none" },
   statusGrid: {
     display: "grid",
     gridTemplateColumns: "repeat(auto-fit, minmax(110px, 1fr))",
@@ -154,146 +128,158 @@ const styles = {
     marginBottom: "25px"
   },
   statusCard: {
-    padding: "15px 10px",
-    borderRadius: "12px",
-    textAlign: "center",
-    border: "2px solid transparent",
-    background: "white",
-    boxShadow: "0 4px 12px rgba(0,0,0,0.06)"
+    padding: "15px 10px", borderRadius: "12px", textAlign: "center",
+    border: "2px solid transparent", background: "white",
+    boxShadow: "0 4px 12px rgba(0,0,0,0.06)",
+    cursor: "pointer", transition: "all 0.2s", userSelect: "none"
   },
   statusIcon: { fontSize: "22px", marginBottom: "5px" },
-  statusTitle: { 
-    fontSize: "10px", 
-    fontWeight: "700", 
-    marginBottom: "5px", 
-    textTransform: "uppercase", 
-    letterSpacing: "0.5px" 
+  statusTitle: {
+    fontSize: "10px", fontWeight: "700", marginBottom: "5px",
+    textTransform: "uppercase", letterSpacing: "0.5px"
   },
   statusCount: { fontSize: "24px", fontWeight: "900", lineHeight: 1 },
-  ticketGrid: {
-    display: "grid",
-    gridTemplateColumns: "repeat(auto-fill, minmax(750px, 1fr))",
-    gap: "20px"
-  },
-  ticketCard: {
-    background: "white",
-    borderRadius: "16px",
-    padding: "20px",
-    boxShadow: "0 8px 32px rgba(0,0,0,0.1)",
-    borderLeft: "5px solid #e74c3c"
-  },
-  ticketHeader: {
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "flex-start",
-    marginBottom: "15px",
-    gap: "10px"
-  },
-  ticketNumber: {
-    fontSize: "20px",
-    fontWeight: "800",
-    color: "#e74c3c",
-    margin: 0
-  },
-  priorityBadge: {
-    padding: "6px 16px",
-    borderRadius: "20px",
-    color: "white",
-    fontSize: "12px",
-    fontWeight: "700"
-  },
-  infoGrid: {
-    display: "grid",
-    gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))",
-    gap: "15px",
-    marginBottom: "15px"
-  },
-  infoItem: {
-    display: "flex",
-    flexDirection: "column",
-    gap: "4px"
-  },
-  infoLabel: {
-    fontSize: "11px",
-    color: "#6b7280",
-    fontWeight: "700",
-    textTransform: "uppercase",
-    letterSpacing: "0.3px"
-  },
-  infoValue: {
-    fontSize: "13px",
-    fontWeight: "700",
-    color: "#1f2937",
-    wordBreak: "break-word"
-  },
-  statusDisplay: {
-    padding: "10px 16px",
-    borderRadius: "25px",
-    marginBottom: "15px",
-    fontWeight: "700",
-    fontSize: "14px",
-    display: "inline-flex",
-    alignItems: "center",
-    gap: "8px"
-  },
-  durationRow: {
-    display: "grid",
-    gridTemplateColumns: "1fr 1fr",
-    gap: "12px",
-    marginBottom: "15px"
-  },
-  durationItem: {
-    padding: "10px 12px",
-    borderRadius: "8px",
-    borderLeft: "3px solid #e74c3c",
-    background: "#fef7f7"
-  },
-  durationLabel: {
-    fontSize: "11px",
-    color: "#dc2626",
-    fontWeight: "700",
-    marginBottom: "2px"
-  },
-  durationValue: {
-    fontSize: "16px",
-    fontWeight: "800",
-    color: "#b91c1c"
-  },
-  issueDetails: {
-    background: "#f8fafc",
-    padding: "12px 16px",
-    borderRadius: "8px",
-    borderLeft: "3px solid #1976d2",
-    fontSize: "13px",
-    lineHeight: "1.4",
-    color: "#374151"
-  },
   loading: {
-    display: "flex",
-    flexDirection: "column",
-    alignItems: "center",
-    justifyContent: "center",
-    minHeight: "60vh",
-    padding: "40px 20px"
+    display: "flex", flexDirection: "column", alignItems: "center",
+    justifyContent: "center", minHeight: "60vh", padding: "40px 20px"
   },
   logoutButton: {
-    padding: "8px 16px",
-    background: "#dc3545",
-    color: "white",
-    border: "none",
-    borderRadius: "8px",
-    fontSize: "13px",
-    fontWeight: "600",
-    cursor: "pointer",
-    whiteSpace: "nowrap"
+    padding: "8px 16px", background: "#dc3545", color: "white",
+    border: "none", borderRadius: "8px", fontSize: "13px",
+    fontWeight: "600", cursor: "pointer", whiteSpace: "nowrap"
   },
-  logo: {
-    width: "70px",
-    height: "60px",
-    objectFit: "contain"
-  }
+  logo: { width: "70px", height: "60px", objectFit: "contain" }
 };
 
+const th = { padding: "12px", textAlign: "left", fontSize: "14px" };
+const td = { padding: "12px", fontSize: "14px" };
+
+// ── Ticket Detail Modal (matches Dispatcher card style) ───────────────────
+function TicketModal({ ticket, onClose }) {
+  if (!ticket) return null;
+
+  const priorityColor =
+    ticket.priority === "High" ? "#e20022" :
+    ticket.priority === "Medium" ? "#f15f13" :
+    ticket.priority === "Low" ? "#39c62c" : "#95a5a6";
+
+  const timestampStyle = {
+    fontSize: "14px", color: "#6c757d",
+    padding: "10px 0 10px 16px",
+    borderLeft: "4px solid #e0e0e0",
+    margin: "8px 0"
+  };
+
+  const issueRowStyle = {
+    marginTop: "16px", paddingTop: "16px",
+    borderTop: "2px solid #f0f0f0",
+    display: "flex", flexDirection: "column", gap: "6px"
+  };
+
+  return (
+    <div style={{
+      position: "fixed", top: 0, left: 0, right: 0, bottom: 0,
+      background: "rgba(0,0,0,0.6)", display: "flex",
+      justifyContent: "center", alignItems: "center", zIndex: 2000,
+      padding: "20px"
+    }} onClick={onClose}>
+      <div style={{
+        width: "100%", maxWidth: "600px", maxHeight: "90vh",
+        overflowY: "auto", background: "white", borderRadius: "16px",
+        padding: "28px", position: "relative",
+        boxShadow: "0 24px 80px rgba(0,0,0,0.35)",
+        borderLeft: "5px solid #1976d2"
+      }} onClick={e => e.stopPropagation()}>
+
+        
+        {/* Ticket No + Priority */}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "18px", flexWrap: "wrap", gap: "10px" }}>
+          <div style={{ fontSize: "22px", fontWeight: "800", color: "#1976d2" }}>
+            🎫 {ticket.TicketNo}
+          </div>
+          <span style={{
+            padding: "8px 18px", borderRadius: "25px", color: "white",
+            fontSize: "13px", fontWeight: "700", background: priorityColor
+          }}>
+            {ticket.priority || "N/A"}
+          </span>
+        </div>
+
+        {/* Customer / Site / Engineer */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "14px", marginBottom: "16px" }}>
+          {[
+            { label: "Customer", value: ticket.CustomerName || "N/A" },
+            { label: "Site", value: ticket.SiteName || "N/A" },
+            { label: "Engineer", value: ticket.AssignedTo?.split('@')[0] || "N/A" },
+            { label: "Duration", value: ticket.Status === "Resolved" ? calculateDuration(ticket.CreatedTime, ticket.Resolved_Date) : calculateDuration(ticket.CreatedTime) }
+          ].map(({ label, value }) => (
+            <div key={label} style={{ background: "#f8fafc", borderRadius: "10px", padding: "12px 14px" }}>
+              <div style={{ fontSize: "11px", fontWeight: "700", color: "#6b7280", textTransform: "uppercase", marginBottom: "4px" }}>{label}</div>
+              <div style={{ fontSize: "14px", fontWeight: "700", color: "#1e293b", wordBreak: "break-word" }}>{value}</div>
+            </div>
+          ))}
+        </div>
+
+        {/* Status Badge */}
+        <div style={{
+          padding: "12px 20px", borderRadius: "30px", marginBottom: "16px",
+          fontWeight: "700", fontSize: "15px", display: "inline-flex",
+          alignItems: "center", gap: "8px",
+          color: getStatusColor(ticket.Status),
+          background: getStatusColor(ticket.Status) + "20"
+        }}>
+          📍 {getStatusIcon(ticket.Status)} {ticket.Status}
+        </div>
+
+        {/* Timestamps */}
+        {ticket.CreatedTime && (
+          <div style={timestampStyle}>🕒 Created: {formatIstDate(ticket.CreatedTime)}</div>
+        )}
+        {ticket.InProgress_Date && (
+          <div style={timestampStyle}>🚀 Started: {formatIstDate(ticket.InProgress_Date)}</div>
+        )}
+        {ticket.Pending_Date && (
+          <div style={timestampStyle}>⏳ Pending: {formatIstDate(ticket.Pending_Date)}</div>
+        )}
+        {ticket.Resolved_Date && (
+          <div style={timestampStyle}>✅ Resolved: {formatIstDate(ticket.Resolved_Date)}</div>
+        )}
+
+        {/* Issue Details */}
+        {ticket.IssueDetails && (
+          <div style={issueRowStyle}>
+            <span style={{ fontSize: "13px", color: "#6c757d", fontWeight: "700" }}>Issue:</span>
+            <span style={{ fontSize: "15px", color: "#2c3e50", lineHeight: "1.6" }}>{ticket.IssueDetails}</span>
+          </div>
+        )}
+
+        {/* Remarks */}
+        {ticket.Remark && (
+          <div style={issueRowStyle}>
+            <span style={{ fontSize: "13px", color: "#6c757d", fontWeight: "700" }}>Remarks:</span>
+            <span style={{ fontSize: "15px", color: "#2c3e50", lineHeight: "1.6" }}>{ticket.Remark}</span>
+          </div>
+        )}
+
+        {/* Resolution */}
+        {ticket.Resolution && (
+          <div style={issueRowStyle}>
+            <span style={{ fontSize: "13px", color: "#6c757d", fontWeight: "700" }}>Resolution:</span>
+            <span style={{ fontSize: "15px", color: "#2c3e50", lineHeight: "1.6" }}>{ticket.Resolution}</span>
+          </div>
+        )}
+
+        <button onClick={onClose} style={{
+          marginTop: "24px", width: "100%", padding: "13px",
+          background: "#1976d2", color: "white", border: "none",
+          borderRadius: "10px", fontSize: "15px", fontWeight: "700", cursor: "pointer"
+        }}>Close</button>
+      </div>
+    </div>
+  );
+}
+
+// ── Main Component ─────────────────────────────────────────────────────────
 export default function ManagerDashboard() {
   const navigate = useNavigate();
   const [tickets, setTickets] = useState([]);
@@ -304,21 +290,20 @@ export default function ManagerDashboard() {
   const [endDate, setEndDate] = useState('');
   const [selectedCustomer, setSelectedCustomer] = useState('all');
   const [customers, setCustomers] = useState([]);
+  const [activeFilter, setActiveFilter] = useState('Total'); // status filter
+  const [selectedTicket, setSelectedTicket] = useState(null); // modal
 
   const loadTickets = useCallback(async () => {
     try {
       setLoading(true);
       const token = localStorage.getItem("token");
       if (!token) throw new Error("No token found");
-
       const res = await API.get("/tickets/escalated", {
         headers: { Authorization: `Bearer ${token}` }
       });
-      console.log("✅ Tickets loaded:", res.data);
       setTickets(res.data || []);
       setCustomers(Array.from(new Set(res.data.map(t => t.CustomerName).filter(Boolean))).sort());
     } catch (err) {
-      console.error("Error:", err);
       if (err.response?.status === 401) {
         localStorage.clear();
         navigate("/", { replace: true });
@@ -329,72 +314,40 @@ export default function ManagerDashboard() {
   }, [navigate]);
 
   const handleDownload = async () => {
-    if (!startDate || !endDate) {
-      alert("Please select both start and end dates");
-      return;
-    }
-
+    if (!startDate || !endDate) { alert("Please select both start and end dates"); return; }
     try {
       setDownloadLoading(true);
-
       const token = localStorage.getItem("token");
-
       const res = await API.get("/tickets/download", {
-        params: {
-          startDate,
-          endDate,
-          customer: selectedCustomer === "all" ? "" : selectedCustomer
-        },
-        headers: {
-          Authorization: `Bearer ${token}`
-        },
+        params: { startDate, endDate, customer: selectedCustomer === "all" ? "" : selectedCustomer },
+        headers: { Authorization: `Bearer ${token}` },
         responseType: "blob"
       });
-
-      // ✅ Check if response is valid
-      if (!res.data) {
-        throw new Error("Empty file");
-      }
-
       const blob = new Blob([res.data], { type: "text/csv" });
       const url = window.URL.createObjectURL(blob);
-
       const link = document.createElement("a");
       link.href = url;
       link.download = `SAI_Tickets_${startDate}_to_${endDate}.csv`;
       document.body.appendChild(link);
       link.click();
-
       link.remove();
       window.URL.revokeObjectURL(url);
-
     } catch (err) {
-      console.error("Download error:", err);
-
-      // 🔥 Show real backend error
       if (err.response?.data) {
         const reader = new FileReader();
-        reader.onload = () => {
-          alert("❌ " + reader.result);
-        };
+        reader.onload = () => alert("❌ " + reader.result);
         reader.readAsText(err.response.data);
       } else {
         alert("❌ Download failed");
       }
-
     } finally {
       setDownloadLoading(false);
     }
   };
 
-  const handleLogout = () => {
-    localStorage.clear();
-    window.location.href = "/";
-  };
+  const handleLogout = () => { localStorage.clear(); window.location.href = "/"; };
 
-  useEffect(() => {
-    loadTickets();
-  }, [loadTickets]);
+  useEffect(() => { loadTickets(); }, [loadTickets]);
 
   const summary = {
     Total: tickets.length,
@@ -404,6 +357,11 @@ export default function ManagerDashboard() {
     Resolved: tickets.filter(t => t.Status === "Resolved").length
   };
 
+  // Filter tickets based on active status card
+  const filteredTickets = activeFilter === "Total"
+    ? tickets
+    : tickets.filter(t => t.Status === activeFilter);
+
   if (loading) {
     return (
       <div style={styles.loading}>
@@ -411,66 +369,36 @@ export default function ManagerDashboard() {
       </div>
     );
   }
-  const th = {
-    padding: "12px",
-    textAlign: "left",
-    fontSize: "14px"
-  };
 
-  const td = {
-    padding: "12px",
-    fontSize: "14px"
-  };
   return (
     <div style={styles.container}>
+
+      {/* TICKET DETAIL MODAL */}
+      <TicketModal ticket={selectedTicket} onClose={() => setSelectedTicket(null)} />
+
       {/* DOWNLOAD PANEL */}
       <div style={styles.downloadPanel}>
-        <h2 style={styles.downloadTitle}>
-          📥 Download Ticket Report
-        </h2>
+        <h2 style={styles.downloadTitle}>📥 Download Ticket Report</h2>
         <div style={styles.filterRow}>
           <div style={styles.filterGroup}>
             <label style={styles.filterLabel}>Start Date</label>
-            <input
-              type="date"
-              value={startDate}
-              onChange={(e) => setStartDate(e.target.value)}
-              style={styles.dateInput}
-              max={endDate || new Date().toISOString().split('T')[0]}
-            />
+            <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)}
+              style={styles.dateInput} max={endDate || new Date().toISOString().split('T')[0]} />
           </div>
           <div style={styles.filterGroup}>
             <label style={styles.filterLabel}>End Date</label>
-            <input
-              type="date"
-              value={endDate}
-              onChange={(e) => setEndDate(e.target.value)}
-              style={styles.dateInput}
-              min={startDate}
-              max={new Date().toISOString().split('T')[0]}
-            />
+            <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)}
+              style={styles.dateInput} min={startDate} max={new Date().toISOString().split('T')[0]} />
           </div>
           <div style={styles.filterGroup}>
             <label style={styles.filterLabel}>Customer</label>
-            <select
-              value={selectedCustomer}
-              onChange={(e) => setSelectedCustomer(e.target.value)}
-              style={styles.customerSelect}
-            >
+            <select value={selectedCustomer} onChange={(e) => setSelectedCustomer(e.target.value)} style={styles.customerSelect}>
               <option value="all">🌐 Select All Customers</option>
-              {customers.map((customer, idx) => (
-                <option key={idx} value={customer}>{customer}</option>
-              ))}
+              {customers.map((c, i) => <option key={i} value={c}>{c}</option>)}
             </select>
           </div>
-          <button
-            onClick={handleDownload}
-            disabled={!startDate || !endDate || downloadLoading}
-            style={{
-              ...styles.downloadBtn,
-              ...(downloadLoading ? styles.downloadBtnDisabled : {})
-            }}
-          >
+          <button onClick={handleDownload} disabled={!startDate || !endDate || downloadLoading}
+            style={{ ...styles.downloadBtn, ...(downloadLoading ? styles.downloadBtnDisabled : {}) }}>
             {downloadLoading ? "⏳ Downloading..." : "📊 Download CSV"}
           </button>
         </div>
@@ -484,41 +412,34 @@ export default function ManagerDashboard() {
             <div>
               <h1 style={styles.title}>🚨 SAI Manager Dashboard</h1>
               <div style={styles.headerStats}>
-                Total: <strong>{summary.Total}</strong> | Open: <strong style={{color: "#e74c3c"}}>{summary.Open}</strong>
+                Total: <strong>{summary.Total}</strong> | Open: <strong style={{ color: "#e74c3c" }}>{summary.Open}</strong>
               </div>
             </div>
           </div>
-          <button 
-            onClick={() => setShowLogoutConfirm(true)}
-            style={styles.logoutButton}
-          >
-            🚪 Logout
-          </button>
+          <button onClick={() => setShowLogoutConfirm(true)} style={styles.logoutButton}>🚪 Logout</button>
         </div>
       </div>
 
+      {/* LOGOUT CONFIRM */}
       {showLogoutConfirm && (
         <div style={{
           position: "fixed", top: 0, left: 0, right: 0, bottom: 0,
-          background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000
+          background: "rgba(0,0,0,0.5)", display: "flex",
+          alignItems: "center", justifyContent: "center", zIndex: 1000
         }}>
           <div style={{
-            background: "white", padding: "28px", borderRadius: "12px", boxShadow: "0 20px 60px rgba(0,0,0,0.3)",
-            maxWidth: "380px", width: "90%", textAlign: "center"
+            background: "white", padding: "28px", borderRadius: "12px",
+            boxShadow: "0 20px 60px rgba(0,0,0,0.3)", maxWidth: "380px", width: "90%", textAlign: "center"
           }}>
             <h3 style={{ margin: "0 0 16px 0", color: "#1e293b" }}>🔒 Confirm Logout</h3>
             <p style={{ margin: "0 0 24px 0", color: "#64748b" }}>Are you sure you want to logout?</p>
             <div style={{ display: "flex", gap: "12px", justifyContent: "flex-end" }}>
-              <button 
-                onClick={() => setShowLogoutConfirm(false)}
-                style={{ padding: "10px 20px", background: "#6c757d", color: "white", border: "none", borderRadius: "8px", fontWeight: "600", cursor: "pointer" }}
-              >
+              <button onClick={() => setShowLogoutConfirm(false)}
+                style={{ padding: "10px 20px", background: "#6c757d", color: "white", border: "none", borderRadius: "8px", fontWeight: "600", cursor: "pointer" }}>
                 Cancel
               </button>
-              <button 
-                onClick={handleLogout}
-                style={{ padding: "10px 20px", background: "#dc3545", color: "white", border: "none", borderRadius: "8px", fontWeight: "600", cursor: "pointer" }}
-              >
+              <button onClick={handleLogout}
+                style={{ padding: "10px 20px", background: "#dc3545", color: "white", border: "none", borderRadius: "8px", fontWeight: "600", cursor: "pointer" }}>
                 Logout
               </button>
             </div>
@@ -526,33 +447,60 @@ export default function ManagerDashboard() {
         </div>
       )}
 
-      {/* STATUS CARDS */}
+      {/* STATUS CARDS — clickable filter */}
       <div style={styles.statusGrid}>
-        {Object.entries(summary).map(([key, value]) => (
-          <div key={key} style={{
-            ...styles.statusCard,
-            borderColor: getStatusColor(key),
-            background: value > 0 ? getStatusColor(key) + "10" : "white",
-            color: value > 0 ? getStatusColor(key) : "#374151"
-          }}>
-            <div style={styles.statusIcon}>{key === "Total" ? "🚨" : getStatusIcon(key)}</div>
-            <div style={styles.statusTitle}>{key}</div>
-            <div style={styles.statusCount}>{value}</div>
-          </div>
-        ))}
+        {Object.entries(summary).map(([key, value]) => {
+          const isActive = activeFilter === key;
+          const color = key === "Total" ? "#1976d2" : getStatusColor(key);
+          return (
+            <div key={key}
+              onClick={() => setActiveFilter(key)}
+              style={{
+                ...styles.statusCard,
+                borderColor: isActive ? color : "transparent",
+                background: isActive ? color + "18" : "white",
+                color: isActive ? color : "#374151",
+                transform: isActive ? "scale(1.04)" : "scale(1)",
+                boxShadow: isActive
+                  ? `0 6px 20px ${color}40`
+                  : "0 4px 12px rgba(0,0,0,0.06)"
+              }}
+            >
+              <div style={styles.statusIcon}>{key === "Total" ? "🚨" : getStatusIcon(key)}</div>
+              <div style={{ ...styles.statusTitle, color: isActive ? color : "#374151" }}>{key}</div>
+              <div style={{ ...styles.statusCount, color: isActive ? color : "#374151" }}>{value}</div>
+            </div>
+          );
+        })}
       </div>
 
-      {/* TICKETS */}
-      {tickets.length === 0 ? (
+      {/* Active filter label */}
+      <div style={{ marginBottom: "12px", display: "flex", alignItems: "center", gap: "10px" }}>
+        <span style={{
+          fontSize: "14px", fontWeight: "700", color: "#374151"
+        }}>
+          Showing: <span style={{ color: activeFilter === "Total" ? "#1976d2" : getStatusColor(activeFilter) }}>
+            {activeFilter}
+          </span> ({filteredTickets.length} tickets)
+        </span>
+        {activeFilter !== "Total" && (
+          <button onClick={() => setActiveFilter("Total")} style={{
+            padding: "4px 12px", fontSize: "12px", background: "#e2e8f0",
+            border: "none", borderRadius: "20px", cursor: "pointer", fontWeight: "600"
+          }}>✕ Clear Filter</button>
+        )}
+      </div>
+
+      {/* TICKETS TABLE */}
+      {filteredTickets.length === 0 ? (
         <div style={styles.loading}>
           <div style={{ fontSize: "48px", marginBottom: "15px", opacity: 0.5 }}>🚨</div>
-          <h3 style={{ margin: 0, color: "#6b7280" }}>No escalated tickets</h3>
+          <h3 style={{ margin: 0, color: "#6b7280" }}>No tickets for "{activeFilter}"</h3>
         </div>
       ) : (
-        <div style={{
-          maxHeight: "400px", overflowY: "auto", background: "white", borderRadius: "12px"  }}>
+        <div style={{ maxHeight: "480px", overflowY: "auto", background: "white", borderRadius: "12px", boxShadow: "0 4px 20px rgba(0,0,0,0.08)" }}>
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
-            <thead>
+            <thead style={{ position: "sticky", top: 0, zIndex: 10 }}>
               <tr style={{ background: "#1976d2", color: "white" }}>
                 <th style={th}>Ticket No</th>
                 <th style={th}>Customer</th>
@@ -562,35 +510,47 @@ export default function ManagerDashboard() {
                 <th style={th}>Status</th>
                 <th style={th}>Created</th>
                 <th style={th}>Duration</th>
+                <th style={th}>Action</th>
               </tr>
             </thead>
-
             <tbody>
-              {tickets.map((t) => (
-                <tr key={t.TicketID} style={{ borderBottom: "1px solid #eee" }}>
-                  <td style={td}>{t.TicketNo}</td>
+              {filteredTickets.map((t, idx) => (
+                <tr key={t.TicketID} style={{
+                  borderBottom: "1px solid #eee",
+                  background: idx % 2 === 0 ? "#fff" : "#f9fafb"
+                }}>
+                  <td style={{ ...td, fontWeight: "700", color: "#1976d2" }}>{t.TicketNo}</td>
                   <td style={td}>{t.CustomerName || 'N/A'}</td>
                   <td style={td}>{t.SiteName || 'N/A'}</td>
                   <td style={td}>{t.AssignedTo?.split('@')[0] || 'N/A'}</td>
                   <td style={td}>{t.priority}</td>
-
                   <td style={td}>
                     <span style={{
-                      padding: "6px 10px",
-                      borderRadius: "20px",
+                      padding: "5px 10px", borderRadius: "20px",
                       background: getStatusColor(t.Status) + "20",
-                      color: getStatusColor(t.Status),
-                      fontWeight: "600"
+                      color: getStatusColor(t.Status), fontWeight: "600", fontSize: "13px"
                     }}>
-                      {t.Status}
+                      {getStatusIcon(t.Status)} {t.Status}
                     </span>
                   </td>
-
                   <td style={td}>{formatIstDate(t.CreatedTime)}</td>
                   <td style={td}>
                     {t.Status === "Resolved"
                       ? calculateDuration(t.CreatedTime, t.Resolved_Date)
                       : calculateDuration(t.CreatedTime)}
+                  </td>
+                  <td style={td}>
+                    <button
+                      onClick={() => setSelectedTicket(t)}
+                      style={{
+                        padding: "6px 16px", background: "#1976d2", color: "white",
+                        border: "none", borderRadius: "8px", fontSize: "13px",
+                        fontWeight: "700", cursor: "pointer",
+                        boxShadow: "0 2px 8px rgba(25,118,210,0.3)"
+                      }}
+                    >
+                      👁 View
+                    </button>
                   </td>
                 </tr>
               ))}
