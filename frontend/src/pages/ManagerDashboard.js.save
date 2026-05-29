@@ -2,6 +2,11 @@ import { useEffect, useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import API from "../api";
 
+const [showNotifyForm, setShowNotifyForm] = useState(false);
+const [notifyForm, setNotifyForm] = useState({
+  customerName: '', siteName: '', issueDetails: '', priority: 'Medium'
+});
+const [notifySending, setNotifySending] = useState(false);
 
 const parseSqlDate = (dateString) => {
   if (!dateString || typeof dateString !== 'string') return null;
@@ -293,17 +298,6 @@ export default function ManagerDashboard() {
   const [customers, setCustomers] = useState([]);
   const [activeFilter, setActiveFilter] = useState('Total'); // status filter
   const [selectedTicket, setSelectedTicket] = useState(null); // modal
-  // 🔔 Notify Dispatcher States
-  const [showNotifyForm, setShowNotifyForm] = useState(false);
-
-  const [notifyForm, setNotifyForm] = useState({
-    customerName: '',
-    siteName: '',
-    issueDetails: '',
-    priority: 'Medium'
-  });
-
-  const [notifySending, setNotifySending] = useState(false);
 
   const loadTickets = useCallback(async () => {
     try {
@@ -432,70 +426,6 @@ export default function ManagerDashboard() {
         </div>
       </div>
 
-{/* 🔔 NOTIFY DISPATCHER BUTTON */}
-<div style={{padding:'15px', background:'#fff3cd', borderRadius:'8px', margin:'15px', border:'1px solid #ffc107'}}>
-  <div style={{display:'flex', justifyContent:'space-between', alignItems:'center'}}>
-    <h3 style={{margin:0}}>📞 Notify Dispatcher</h3>
-    <button
-      onClick={() => setShowNotifyForm(!showNotifyForm)}
-      style={{background:'#f39c12', color:'white', border:'none', padding:'8px 16px', borderRadius:'6px', cursor:'pointer', fontWeight:'bold'}}>
-      {showNotifyForm ? '✕ Close' : '+ New Notification'}
-    </button>
-  </div>
-
-  {showNotifyForm && (
-    <div style={{marginTop:'15px', display:'grid', gap:'10px'}}>
-      <input
-        placeholder="Customer Name *"
-        value={notifyForm.customerName}
-        onChange={e => setNotifyForm({...notifyForm, customerName: e.target.value})}
-        style={{padding:'10px', borderRadius:'6px', border:'1px solid #ddd', fontSize:'14px'}}
-      />
-      <input
-        placeholder="Site Name *"
-        value={notifyForm.siteName}
-        onChange={e => setNotifyForm({...notifyForm, siteName: e.target.value})}
-        style={{padding:'10px', borderRadius:'6px', border:'1px solid #ddd', fontSize:'14px'}}
-      />
-      <textarea
-        placeholder="Issue Details * (describe the problem)"
-        value={notifyForm.issueDetails}
-        onChange={e => setNotifyForm({...notifyForm, issueDetails: e.target.value})}
-        rows={3}
-        style={{padding:'10px', borderRadius:'6px', border:'1px solid #ddd', fontSize:'14px', resize:'vertical'}}
-      />
-      <select
-        value={notifyForm.priority}
-        onChange={e => setNotifyForm({...notifyForm, priority: e.target.value})}
-        style={{padding:'10px', borderRadius:'6px', border:'1px solid #ddd', fontSize:'14px'}}>
-        <option value="High">🔴 High</option>
-        <option value="Medium">🟡 Medium</option>
-        <option value="Low">🟢 Low</option>
-      </select>
-      <button
-        onClick={async () => {
-          if (!notifyForm.customerName || !notifyForm.siteName || !notifyForm.issueDetails) {
-            alert('Please fill all fields');
-            return;
-          }
-          setNotifySending(true);
-          try {
-            await API.post('/tickets/manager-notify', notifyForm);
-            alert('✅ Notification sent to Dispatcher!');
-            setNotifyForm({customerName:'', siteName:'', issueDetails:'', priority:'Medium'});
-            setShowNotifyForm(false);
-          } catch (err) {
-            alert('❌ Failed to send notification');
-          }
-          setNotifySending(false);
-        }}
-        disabled={notifySending}
-        style={{background:'#28a745', color:'white', border:'none', padding:'12px', borderRadius:'6px', cursor:'pointer', fontWeight:'bold', fontSize:'15px'}}>
-        {notifySending ? '⏳ Sending...' : '📤 Send to Dispatcher'}
-      </button>
-    </div>
-  )}
-</div>
       {/* LOGOUT CONFIRM */}
       {showLogoutConfirm && (
         <div style={{
@@ -637,3 +567,8 @@ export default function ManagerDashboard() {
     </div>
   );
 }
+const [showNotifyForm, setShowNotifyForm] = useState(false);
+const [notifyForm, setNotifyForm] = useState({
+  customerName: '', siteName: '', issueDetails: '', priority: 'Medium'
+});
+const [notifySending, setNotifySending] = useState(false);

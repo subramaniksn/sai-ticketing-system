@@ -462,35 +462,15 @@ export default function DispatcherDashboard() {
     }
   }, []);
 
-
 const loadManagerNotifications = async () => {
   try {
-    const token = localStorage.getItem("token");
-
-    const res = await API.get('/tickets/manager-notifications', {
-      headers: {
-        Authorization: `Bearer ${token}`
-      }
-    });
-
-    // ✅ Ensure array
-    const data = Array.isArray(res.data) ? res.data : [];
-
-    setManagerNotifications(data);
-
-    setUnreadCount(
-      data.filter(n => n.Status === 'pending').length
-    );
-
+    const res = await API.get('/tickets/manager-notifications');
+    setManagerNotifications(res.data);
+    setUnreadCount(res.data.filter(n => n.Status === 'pending').length);
   } catch (err) {
-    console.error('Failed to load notifications', err);
-
-    // ✅ Prevent white screen
-    setManagerNotifications([]);
-    setUnreadCount(0);
+    console.error('Failed to load notifications');
   }
 };
-
   useEffect(() => {
     loadAmcCustomers();
     loadTickets();
@@ -809,228 +789,64 @@ const td = {
         </div>
       </div>
 
-	{/* 🔔 MANAGER NOTIFICATIONS BELL */}
+{/* 🔔 MANAGER NOTIFICATIONS BELL */}
 <div style={{position:'relative', display:'inline-block', margin:'15px'}}>
   <button
     onClick={() => setShowNotifications(!showNotifications)}
-    style={{
-      background:'#e74c3c',
-      color:'white',
-      border:'none',
-      padding:'10px 20px',
-      borderRadius:'8px',
-      cursor:'pointer',
-      fontWeight:'bold',
-      fontSize:'15px'
-    }}
-  >
+    style={{background:'#e74c3c', color:'white', border:'none', padding:'10px 20px', borderRadius:'8px', cursor:'pointer', fontWeight:'bold', fontSize:'15px'}}>
     🔔 Manager Alerts
-
     {unreadCount > 0 && (
-      <span style={{
-        background:'white',
-        color:'#e74c3c',
-        borderRadius:'50%',
-        padding:'2px 7px',
-        marginLeft:'8px',
-        fontWeight:'bold'
-      }}>
+      <span style={{background:'white', color:'#e74c3c', borderRadius:'50%', padding:'2px 7px', marginLeft:'8px', fontWeight:'bold'}}>
         {unreadCount}
       </span>
     )}
   </button>
 
   {showNotifications && (
-    <div style={{
-      position:'absolute',
-      top:'45px',
-      left:0,
-      width:'450px',
-      background:'white',
-      borderRadius:'10px',
-      boxShadow:'0 8px 30px rgba(0,0,0,0.2)',
-      zIndex:1000,
-      maxHeight:'500px',
-      overflowY:'auto'
-    }}>
-
-      {/* HEADER */}
-      <div style={{
-        padding:'15px',
-        borderBottom:'1px solid #eee',
-        display:'flex',
-        justifyContent:'space-between'
-      }}>
+    <div style={{position:'absolute', top:'45px', left:0, width:'450px', background:'white', borderRadius:'10px', boxShadow:'0 8px 30px rgba(0,0,0,0.2)', zIndex:1000, maxHeight:'500px', overflowY:'auto'}}>
+      <div style={{padding:'15px', borderBottom:'1px solid #eee', display:'flex', justifyContent:'space-between'}}>
         <h3 style={{margin:0}}>📞 Manager Notifications</h3>
-
-        <button
-          onClick={() => setShowNotifications(false)}
-          style={{
-            background:'none',
-            border:'none',
-            fontSize:'20px',
-            cursor:'pointer'
-          }}
-        >
-          ✕
-        </button>
+        <button onClick={() => setShowNotifications(false)} style={{background:'none', border:'none', fontSize:'20px', cursor:'pointer'}}>✕</button>
       </div>
 
-      {/* NOTIFICATIONS */}
       {managerNotifications.length === 0 ? (
-  <p style={{
-    padding:'20px',
-    textAlign:'center',
-    color:'#888'
-  }}>
-    No notifications
-  </p>
-) : (
-        Array.isArray(managerNotifications) &&
+        <p style={{padding:'20px', textAlign:'center', color:'#888'}}>No notifications</p>
+      ) : (
         managerNotifications.map(n => (
-          <div
-            key={n.NotificationID}
-            style={{
-              padding:'15px',
-              borderBottom:'1px solid #f0f0f0',
-              background: n.Status === 'pending'
-                ? '#fff8e1'
-                : '#f9f9f9'
-            }}
-          >
-            <div style={{
-              display:'flex',
-              justifyContent:'space-between',
-              alignItems:'flex-start'
-            }}>
-
+          <div key={n.NotificationID} style={{padding:'15px', borderBottom:'1px solid #f0f0f0', background: n.Status === 'pending' ? '#fff8e1' : '#f9f9f9'}}>
+            <div style={{display:'flex', justifyContent:'space-between', alignItems:'flex-start'}}>
               <div style={{flex:1}}>
-                <div style={{
-                  fontWeight:'bold',
-                  color:'#1a1a1a'
-                }}>
-                  🏢 {n.CustomerName} — {n.SiteName}
-                </div>
-
-                <div style={{
-                  fontSize:'13px',
-                  color:'#555',
-                  margin:'5px 0'
-                }}>
-                  {n.IssueDetails}
-                </div>
-
-                <div style={{
-                  fontSize:'12px',
-                  color:'#888'
-                }}>
-                  Priority:
-                  <b style={{
-                    color:
-                      n.Priority === 'High'
-                        ? '#e74c3c'
-                        : n.Priority === 'Medium'
-                        ? '#f39c12'
-                        : '#27ae60'
-                  }}>
-                    {" "}{n.Priority}
-                  </b>
-
-                  &nbsp;|&nbsp;
-                  By: {n.SentBy.split('@')[0]}
-
-                  &nbsp;|&nbsp;
-                  {new Date(n.CreatedAt).toLocaleString('en-IN', {
-                    timeZone:'Asia/Kolkata'
-                  })}
+                <div style={{fontWeight:'bold', color:'#1a1a1a'}}>🏢 {n.CustomerName} — {n.SiteName}</div>
+                <div style={{fontSize:'13px', color:'#555', margin:'5px 0'}}>{n.IssueDetails}</div>
+                <div style={{fontSize:'12px', color:'#888'}}>
+                  Priority: <b style={{color: n.Priority==='High'?'#e74c3c':n.Priority==='Medium'?'#f39c12':'#27ae60'}}>{n.Priority}</b>
+                  &nbsp;|&nbsp; By: {n.SentBy.split('@')[0]}
+                  &nbsp;|&nbsp; {new Date(n.CreatedAt).toLocaleString('en-IN', {timeZone:'Asia/Kolkata'})}
                 </div>
               </div>
-
-              <div style={{
-                display:'flex',
-                flexDirection:'column',
-                gap:'5px',
-                marginLeft:'10px'
-              }}>
-
+              <div style={{display:'flex', flexDirection:'column', gap:'5px', marginLeft:'10px'}}>
                 {n.Status === 'pending' && (
                   <button
                     onClick={async () => {
                       await API.put(`/tickets/manager-notify/${n.NotificationID}/done`);
                       loadManagerNotifications();
                     }}
-                    style={{
-                      background:'#28a745',
-                      color:'white',
-                      border:'none',
-                      padding:'5px 10px',
-                      borderRadius:'4px',
-                      cursor:'pointer',
-                      fontSize:'12px'
-                    }}
-                  >
+                    style={{background:'#28a745', color:'white', border:'none', padding:'5px 10px', borderRadius:'4px', cursor:'pointer', fontSize:'12px'}}>
                     ✅ Done
                   </button>
                 )}
-
                 {n.Status === 'pending' && (
-                  <span style={{
-                    background:'#ffc107',
-                    color:'#333',
-                    padding:'3px 8px',
-                    borderRadius:'4px',
-                    fontSize:'11px',
-                    textAlign:'center'
-                  }}>
-                    🆕 New
-                  </span>
+                  <span style={{background:'#ffc107', color:'#333', padding:'3px 8px', borderRadius:'4px', fontSize:'11px', textAlign:'center'}}>🆕 New</span>
                 )}
-
                 {n.Status === 'done' && (
-                  <span style={{
-                    background:'#28a745',
-                    color:'white',
-                    padding:'3px 8px',
-                    borderRadius:'4px',
-                    fontSize:'11px',
-                    textAlign:'center'
-                  }}>
-                    ✅ Done
-                  </span>
+                  <span style={{background:'#28a745', color:'white', padding:'3px 8px', borderRadius:'4px', fontSize:'11px', textAlign:'center'}}>✅ Done</span>
                 )}
               </div>
             </div>
           </div>
         ))
       )}
-
-      {/* BACK BUTTON */}
-      <div style={{
-        padding:'12px',
-        textAlign:'center',
-        borderTop:'1px solid #eee'
-      }}>
-        <button
-          onClick={() => setShowNotifications(false)}
-          style={{
-            background:'#1976d2',
-            color:'white',
-            border:'none',
-            padding:'8px 20px',
-            borderRadius:'6px',
-            cursor:'pointer',
-            fontWeight:'bold'
-          }}
-        >
-          ← Back to Dashboard
-        </button>
-      </div>
-
-    </div>
-  )}
-</div>
-
-
+  d
       {showLogoutConfirm && (
         <div style={styles.logoutModal}>
           <div style={styles.logoutModalContent}>

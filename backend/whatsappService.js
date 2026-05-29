@@ -165,11 +165,44 @@ ${process.env.APP_URL || 'http://your-app-url.com'}`;
   await sendWhatsApp(phone, msg);
 };
 
+/**
+ * 4️⃣ Manager Alert → Dispatcher
+ */
+const notifyDispatcherManagerAlert = async (
+  phone,
+  notification
+) => {
+
+  const msg =
+`📞 *MANAGER ALERT — SAI Automation*
+
+🏢 Customer: *${notification.customerName}*
+📍 Site: *${notification.siteName}*
+⚠️ Priority: *${notification.priority}*
+
+📋 Issue:
+${notification.issueDetails}
+
+👔 Sent By:
+${notification.sentBy}
+
+🕒 Time:
+${notification.createdAt}
+
+🔐 Please check Dispatcher Dashboard immediately.
+
+${process.env.APP_URL || 'http://your-app-url.com'}
+`;
+
+  await sendWhatsApp(phone, msg);
+};
+
 module.exports = {
   connectToWhatsApp,
   sendWhatsApp,
   notifyEngineerTicketCreated,
   notifyEngineerReminder,
   notifyManagerSlaBreached,
+  notifyDispatcherManagerAlert,
   getIsReady: () => isWhatsAppReady
 };

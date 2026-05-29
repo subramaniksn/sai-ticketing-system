@@ -6,7 +6,7 @@ const createCsvWriter = require('csv-writer').createObjectCsvWriter;
 const fs = require('fs');
 
 // ✅ NEW: WhatsApp notification
-const { notifyEngineerTicketCreated } = require('../whatsappService');
+const { notifyEngineerTicketCreated,sendWhatsApp } = require('../whatsappService');
 
 // ✅ Generate Ticket No Function (PostgreSQL)
 async function generateTicketNo() {
@@ -378,12 +378,12 @@ router.get("/download", verifyToken, async (req, res) => {
         "AssignedTo",
         "Status",
         "Remark",
-        COALESCE(("CreatedTime" AT TIME ZONE 'Asia/Kolkata')::text, '') as "CreatedTime",
-        COALESCE(("ResolvedTime" AT TIME ZONE 'Asia/Kolkata')::text, '') as "ResolvedTime",
-        CASE WHEN "Escalated" THEN 'Yes' ELSE 'No' END as "Escalated",
-        COALESCE(("InProgress_Date" AT TIME ZONE 'Asia/Kolkata')::text, '') as "InProgress_Date",
-        COALESCE(("Pending_Date" AT TIME ZONE 'Asia/Kolkata')::text, '') as "Pending_Date",
-        COALESCE(("Resolved_Date" AT TIME ZONE 'Asia/Kolkata')::text, '') as "Resolved_Date",
+        COALESCE(("CreatedTime"::timestamptz AT TIME ZONE 'Asia/Kolkata')::text, '') as "CreatedTime",
+   	COALESCE(("ResolvedTime"::timestamptz AT TIME ZONE 'Asia/Kolkata')::text, '') as "ResolvedTime",
+	CASE WHEN "Escalated" THEN 'Yes' ELSE 'No' END as "Escalated",
+	COALESCE(("InProgress_Date"::timestamptz AT TIME ZONE 'Asia/Kolkata')::text, '') as "InProgress_Date",
+	COALESCE(("Pending_Date"::timestamptz AT TIME ZONE 'Asia/Kolkata')::text, '') as "Pending_Date",
+	COALESCE(("Resolved_Date"::timestamptz AT TIME ZONE 'Asia/Kolkata')::text, '') as "Resolved_Date",
         "priority",
         COALESCE("AmcCustomerId"::text, '') as "AmcCustomerId",
         "TicketType"
@@ -428,7 +428,6 @@ router.get("/download", verifyToken, async (req, res) => {
   }
 });
 
-
 // ✅ Reassign Ticket
 router.put("/reassign/:id", verifyToken, async (req, res) => {
   try {
@@ -438,12 +437,58 @@ router.put("/reassign/:id", verifyToken, async (req, res) => {
 
     const { assignedTo } = req.body;
 
+    // ✅ Get ticket details before update
+    const ticketRes = await pool.query(
+      `SELECT "TicketNo", "CustomerName", "SiteName", "IssueDetails", "priority"
+       FROM "Tickets" WHERE "TicketID" = $1`,
+      [req.params.id]
+    );
+
     await pool.query(
       `UPDATE "Tickets"
-       SET "AssignedTo" = $1
+       SET "AssignedTo" = $1,
+           "ReminderSent" = false,
+           "EscalationSent" = false
        WHERE "TicketID" = $2`,
       [assignedTo, req.params.id]
     );
+
+    // ✅ Send WhatsApp to new engineer
+    try {
+      const engRes = await pool.query(
+        `SELECT "Email", "Phone" FROM public."Users" WHERE "Email" = $1`,
+        [assignedTo]
+      );
+      const engineer = engRes.rows[0];
+      const ticket = ticketRes.rows[0];
+
+      if (engineer?.Phone && ticket) {
+        const engineerName = engineer.Email.split('@')[0];
+        const assignedTimeIST = new Date().toLocaleString('en-IN', {
+          timeZone: 'Asia/Kolkata',
+          hour12: true,
+          year: 'numeric', month: 'short', day: '2-digit',
+          hour: '2-digit', minute: '2-digit'
+        });
+
+        notifyEngineerTicketCreated(
+          engineer.Phone,
+          engineerName,
+          {
+            ticketNo: ticket.TicketNo,
+            customerName: ticket.CustomerName,
+            siteName: ticket.SiteName,
+            issueDetails: ticket.IssueDetails,
+            priority: ticket.priority,
+            createdTime: assignedTimeIST
+          }
+        ).catch(err => console.error('WhatsApp reassign notify error:', err.message));
+
+        console.log(`✅ Reassignment WhatsApp sent to ${assignedTo}`);
+      }
+    } catch (waErr) {
+      console.error('WhatsApp reassign error:', waErr.message);
+    }
 
     res.json({ msg: "✅ Ticket reassigned successfully" });
 
@@ -471,4 +516,105 @@ router.get("/users/engineers", verifyToken, async (req, res) => {
   }
 });
 
+// ✅ Manager Send Notification to Dispatcher
+router.post("/manager-notify", verifyToken, async (req, res) => {
+  try {
+    if (req.user.role !== "Manager") {
+      return res.status(403).json({ msg: "Only Manager allowed" });
+    }
+
+    const { customerName, siteName, issueDetails, priority } = req.body;
+
+    if (!customerName || !siteName || !issueDetails) {
+      return res.status(400).json({ msg: "All fields required" });
+    }
+
+    // 1️⃣ Save notification in DB
+    await pool.query(
+      `INSERT INTO "ManagerNotifications"
+       ("CustomerName", "SiteName", "IssueDetails", "Priority", "SentBy")
+       VALUES ($1, $2, $3, $4, $5)`,
+      [customerName, siteName, issueDetails, priority || 'Medium', req.user.email]
+    );
+
+    // 2️⃣ SEND WHATSAPP TO DISPATCHER 🔥
+    try {
+      const dispatcherRes = await pool.query(
+        `SELECT "Phone" FROM public."Users" WHERE "Role" = 'Dispatcher' LIMIT 1`
+      );
+
+      const dispatcher = dispatcherRes.rows[0];
+
+      if (dispatcher?.Phone) {
+
+        const msg =
+`🔔 *Manager Alert — SAI Automation*
+
+👔 From: ${req.user.email.split('@')[0]}
+🏢 Customer: ${customerName}
+📍 Site: ${siteName}
+⚠️ Priority: ${priority || 'Medium'}
+
+📋 Issue:
+${issueDetails}
+
+👉 Please check Dispatcher Dashboard immediately.
+`;
+
+        await sendWhatsApp(dispatcher.Phone, msg);
+
+        console.log("✅ WhatsApp sent to Dispatcher");
+      } else {
+        console.log("⚠️ Dispatcher phone not found");
+      }
+
+    } catch (waErr) {
+      console.error("❌ WhatsApp error:", waErr.message);
+    }
+
+    res.json({ msg: "✅ Notification sent to Dispatcher!" });
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ msg: "Failed to send notification" });
+  }
+});
+
+// ✅ Dispatcher Get Manager Notifications
+router.get("/manager-notifications", verifyToken, async (req, res) => {
+  try {
+    if (req.user.role !== "Dispatcher") {
+      return res.status(403).json({ msg: "Only Dispatcher allowed" });
+    }
+
+    const result = await pool.query(
+      `SELECT * FROM "ManagerNotifications"
+       ORDER BY "CreatedAt" DESC`
+    );
+
+    res.json(result.rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ msg: "Failed to fetch notifications" });
+  }
+});
+
+// ✅ Dispatcher Mark Notification as Done
+router.put("/manager-notify/:id/done", verifyToken, async (req, res) => {
+  try {
+    if (req.user.role !== "Dispatcher") {
+      return res.status(403).json({ msg: "Only Dispatcher allowed" });
+    }
+
+    await pool.query(
+      `UPDATE "ManagerNotifications" SET "Status" = 'done' WHERE "NotificationID" = $1`,
+      [req.params.id]
+    );
+
+    res.json({ msg: "✅ Marked as done" });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ msg: "Failed to update" });
+  }
+});
 module.exports = router;
