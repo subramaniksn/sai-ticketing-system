@@ -581,36 +581,47 @@ useEffect(() => {
 
   const getStatusColor = (status) => {
     switch (status) {
-      case "Open": return "#e20022";
+      case "Open":       return "#e20022";
       case "InProgress": return "#fef032";
-      case "Pending": return "#1c7ad5";
-      case "Resolved": return "#39c62c";
-      default: return "#95a5a6";
+      case "Pending":    return "#1c7ad5";
+      case "Resolved":   return "#39c62c";
+      case "Stale":      return "#ff6b35";   // 🔥 orange-red
+      default:           return "#95a5a6";
     }
   };
 
   const getStatusIcon = (status) => {
     switch (status) {
-      case "Open": return "🔴";
+      case "Open":       return "🔴";
       case "InProgress": return "🟡";
-      case "Pending": return "🔵";
-      case "Resolved": return "🟢";
-      default: return "📌";
+      case "Pending":    return "🔵";
+      case "Resolved":   return "🟢";
+      case "Stale":      return "⏰";
+      default:           return "📌";
     }
   };
 
   const summary = useMemo(() => {
-    const total = tickets.length;
+    const now = new Date();
+    const oneWeekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+
     return {
-      Total: total,
+      Total: tickets.length,
       Open: tickets.filter(t => t.Status === "Open").length,
       InProgress: tickets.filter(t => t.Status === "InProgress").length,
       Pending: tickets.filter(t => t.Status === "Pending").length,
-      Resolved: tickets.filter(t => t.Status === "Resolved").length
+      Resolved: tickets.filter(t => t.Status === "Resolved").length,
+      Stale: tickets.filter(t =>
+        ["Open", "InProgress", "Pending"].includes(t.Status) &&
+        new Date(t.CreatedTime) < oneWeekAgo
+      ).length
     };
   }, [tickets]);
 
   const filteredTickets = useMemo(() => {
+    const now = new Date();
+    const oneWeekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+
     return tickets.filter(t => {
       const s = search.toLowerCase();
       const matchesSearch =
@@ -619,7 +630,19 @@ useEffect(() => {
         (t.SiteName || "").toLowerCase().includes(s) ||
         (t.IssueDetails || "").toLowerCase().includes(s) ||
         (t.AssignedTo || "").toLowerCase().includes(s);
-      const matchesStatus = statusFilter ? t.Status === statusFilter : true;
+
+      // 🔥 Stale filter: Open/InProgress/Pending AND older than 7 days
+      const isStale =
+        ["Open", "InProgress", "Pending"].includes(t.Status) &&
+        new Date(t.CreatedTime) < oneWeekAgo;
+
+      const matchesStatus =
+        statusFilter === "Stale"
+          ? isStale
+          : statusFilter
+          ? t.Status === statusFilter
+          : true;
+
       return matchesSearch && matchesStatus;
     });
   }, [tickets, statusFilter, search]);

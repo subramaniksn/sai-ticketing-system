@@ -37,12 +37,21 @@ const formatIstDate = (dateString) => {
 };
 
 const getStatusColor = (status) => ({
-  "Open": "#e74c3c", "InProgress": "#f39c12", "Pending": "#3498db",
-  "Resolved": "#27ae60", "Escalated": "#9b59b6"
+  "Open": "#e74c3c",
+  "InProgress": "#f39c12",
+  "Pending": "#3498db",
+  "Resolved": "#27ae60",
+  "Escalated": "#9b59b6",
+  "Stale": "#ff6b35"       // 🔥 orange-red
 }[status] || "#95a5a6");
 
 const getStatusIcon = (status) => ({
-  "Open": "🔴", "InProgress": "🟡", "Pending": "🔵", "Resolved": "🟢", "Escalated": "🟣"
+  "Open": "🔴",
+  "InProgress": "🟡",
+  "Pending": "🔵",
+  "Resolved": "🟢",
+  "Escalated": "🟣",
+  "Stale": "⏰"            // 🔥
 }[status] || "📌");
 
 const calculateDuration = (start, end = null) => {
@@ -361,18 +370,38 @@ export default function ManagerDashboard() {
 
   useEffect(() => { loadTickets(); }, [loadTickets]);
 
-  const summary = {
-    Total: tickets.length,
-    Open: tickets.filter(t => t.Status === "Open").length,
-    InProgress: tickets.filter(t => t.Status === "InProgress").length,
-    Pending: tickets.filter(t => t.Status === "Pending").length,
-    Resolved: tickets.filter(t => t.Status === "Resolved").length
-  };
+  const summary = (() => {
+    const now = new Date();
+    const oneWeekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    return {
+      Total: tickets.length,
+      Open: tickets.filter(t => t.Status === "Open").length,
+      InProgress: tickets.filter(t => t.Status === "InProgress").length,
+      Pending: tickets.filter(t => t.Status === "Pending").length,
+      Resolved: tickets.filter(t => t.Status === "Resolved").length,
+      Stale: tickets.filter(t =>
+        ["Open", "InProgress", "Pending"].includes(t.Status) &&
+        new Date(t.CreatedTime) < oneWeekAgo
+      ).length
+    };
+  })();
 
   // Filter tickets based on active status card
-  const filteredTickets = activeFilter === "Total"
-    ? tickets
-    : tickets.filter(t => t.Status === activeFilter);
+  const filteredTickets = (() => {
+    const now = new Date();
+    const oneWeekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+
+    if (activeFilter === "Total") return tickets;
+
+    if (activeFilter === "Stale") {
+      return tickets.filter(t =>
+        ["Open", "InProgress", "Pending"].includes(t.Status) &&
+        new Date(t.CreatedTime) < oneWeekAgo
+      );
+    }
+
+    return tickets.filter(t => t.Status === activeFilter);
+  })();
 
   if (loading) {
     return (
