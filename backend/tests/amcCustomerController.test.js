@@ -30,6 +30,7 @@ function createResponse() {
 const validBody = {
   customerName: "Example Energy",
   siteName: "Pavagada Site",
+  systemName: "SCADA Server 1",
   siteContactName: "Site Manager",
   siteContactPhone: "+91 98765 43210",
   remoteTool: "AnyDesk",
@@ -71,7 +72,7 @@ test("rejects invalid and whitespace-only AMC input", async () => {
   assert.ok(res.body.errors.length >= 2);
 });
 
-test("rejects duplicate customer and site", async () => {
+test("rejects duplicate customer, site, and system", async () => {
   const pool = { query: async () => ({ rows: [{ CustomerID: 5 }] }) };
   const controller = createAmcCustomerController({ pool });
   const res = createResponse();
@@ -96,8 +97,9 @@ test("creates a validated AMC customer with an encrypted password", async () => 
 
   assert.equal(res.statusCode, 201);
   assert.equal(res.body.customerId, 7);
-  assert.match(calls[1].params[6], /^enc:v1:/);
-  assert.notEqual(calls[1].params[6], validBody.remotePassword);
+  assert.deepEqual(calls[0].params, ["Example Energy", "Pavagada Site", "SCADA Server 1"]);
+  assert.match(calls[1].params[7], /^enc:v1:/);
+  assert.notEqual(calls[1].params[7], validBody.remotePassword);
 });
 
 test("rejects AMC updates by non-dispatchers", async () => {
@@ -139,6 +141,7 @@ test("updates AMC details without replacing the password when it is blank", asyn
   assert.deepEqual(calls[1].params, [
     "Example Energy",
     "Pavagada Site",
+    "SCADA Server 1",
     "Updated Manager",
     "+91 98765 43210",
     "AnyDesk",
@@ -165,11 +168,11 @@ test("encrypts a new remote password during an AMC update", async () => {
 
   assert.equal(res.statusCode, 200);
   assert.match(calls[1].sql, /"RemotePassword"/);
-  assert.match(calls[1].params[6], /^enc:v1:/);
-  assert.notEqual(calls[1].params[6], validBody.remotePassword);
+  assert.match(calls[1].params[7], /^enc:v1:/);
+  assert.notEqual(calls[1].params[7], validBody.remotePassword);
 });
 
-test("rejects an AMC update that duplicates another customer and site", async () => {
+test("rejects an AMC update that duplicates another customer, site, and system", async () => {
   const pool = { query: async () => ({ rows: [{ CustomerID: 8 }] }) };
   const controller = createAmcCustomerController({ pool });
   const res = createResponse();

@@ -91,6 +91,11 @@ export default function AmcAccessDetails({ ticket, canRevealPassword = true }) {
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: "10px" }}>
         <div style={fieldStyle}>
+          <span style={labelStyle}>System Name</span>
+          <span style={valueStyle}>{ticket.SystemName || "Primary System"}</span>
+        </div>
+
+        <div style={fieldStyle}>
           <span style={labelStyle}>Contact Person</span>
           <span style={valueStyle}>{ticket.SiteContactName || "—"}</span>
         </div>

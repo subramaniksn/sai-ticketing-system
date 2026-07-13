@@ -49,16 +49,31 @@ async function setupAmcSecurity() {
     await client.query("BEGIN");
     transactionStarted = true;
 
+    await client.query(
+      `ALTER TABLE "AMCCustomers"
+       ADD COLUMN IF NOT EXISTS "SystemName" VARCHAR(100)`
+    );
+    await client.query(
+      `UPDATE "AMCCustomers"
+       SET "SystemName" = 'Primary System'
+       WHERE "SystemName" IS NULL OR btrim("SystemName") = ''`
+    );
+    await client.query(
+      `ALTER TABLE "AMCCustomers"
+       ALTER COLUMN "SystemName" SET NOT NULL`
+    );
+
     const duplicates = await client.query(
       `SELECT lower(btrim("CustomerName")) AS customer,
               lower(btrim("SiteName")) AS site,
+              lower(btrim("SystemName")) AS system,
               COUNT(*)::int AS count
        FROM "AMCCustomers"
-       GROUP BY 1, 2
+       GROUP BY 1, 2, 3
        HAVING COUNT(*) > 1`
     );
     if (duplicates.rows.length) {
-      throw new Error("Duplicate AMC customer/site records must be resolved before enabling the unique index");
+      throw new Error("Duplicate AMC customer/site/system records must be resolved before enabling the unique index");
     }
 
     await client.query(
@@ -86,8 +101,15 @@ async function setupAmcSecurity() {
        OWNED BY "AMCCustomers"."CustomerID"`
     );
     await client.query(
-      `CREATE UNIQUE INDEX IF NOT EXISTS "UX_AMCCustomers_Customer_Site_CI"
-       ON "AMCCustomers" (lower(btrim("CustomerName")), lower(btrim("SiteName")))`
+      `DROP INDEX IF EXISTS "UX_AMCCustomers_Customer_Site_CI"`
+    );
+    await client.query(
+      `CREATE UNIQUE INDEX IF NOT EXISTS "UX_AMCCustomers_Customer_Site_System_CI"
+       ON "AMCCustomers" (
+         lower(btrim("CustomerName")),
+         lower(btrim("SiteName")),
+         lower(btrim("SystemName"))
+       )`
     );
 
     const passwordRows = await client.query(

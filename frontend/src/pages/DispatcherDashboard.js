@@ -397,6 +397,7 @@ const formatIstDate = (dateString) => {
 const emptyAmcForm = () => ({
   customerName: "",
   siteName: "",
+  systemName: "",
   siteContactName: "",
   siteContactPhone: "",
   remoteTool: "AnyDesk",
@@ -665,6 +666,7 @@ useEffect(() => {
     setAmcForm({
       customerName: customer.CustomerName || "",
       siteName: customer.SiteName || "",
+      systemName: customer.SystemName || "Primary System",
       siteContactName: customer.SiteContactName || "",
       siteContactPhone: customer.SiteContactPhone || "",
       remoteTool: customer.RemoteTool || "AnyDesk",
@@ -674,9 +676,21 @@ useEffect(() => {
     setShowAmcForm(true);
   };
 
+  const startAddingAnotherSystem = () => {
+    setEditingAmcId(null);
+    setAmcForm((current) => ({
+      ...current,
+      systemName: "",
+      remoteTool: "AnyDesk",
+      remoteId: "",
+      remotePassword: ""
+    }));
+    setShowAmcForm(true);
+  };
+
   const saveAmcCustomer = async () => {
-    if (!amcForm.customerName.trim() || !amcForm.siteName.trim()) {
-      alert("❌ Customer Name and Site Name are required");
+    if (!amcForm.customerName.trim() || !amcForm.siteName.trim() || !amcForm.systemName.trim()) {
+      alert("❌ Customer Name, Site Name, and System Name are required");
       return;
     }
 
@@ -696,6 +710,7 @@ useEffect(() => {
         ...amcForm,
         customerName: amcForm.customerName.trim(),
         siteName: amcForm.siteName.trim(),
+        systemName: amcForm.systemName.trim(),
         siteContactName: amcForm.siteContactName.trim(),
         siteContactPhone: amcForm.siteContactPhone.trim(),
         remoteId: amcForm.remoteId.trim()
@@ -1256,17 +1271,17 @@ const td = {
           </div>
 
           <div style={{ marginBottom: showAmcForm ? "20px" : 0 }}>
-            <label style={styles.label}>Edit Existing AMC Customer / Site</label>
+            <label style={styles.label}>Edit Existing AMC Customer / Site / System</label>
             <select
               value={editingAmcId || ""}
               onChange={(e) => startEditingAmcCustomer(e.target.value)}
               disabled={creatingAmc || amcLoading}
               style={styles.selectFull}
             >
-              <option value="">Select a customer and site to edit</option>
+              <option value="">Select a customer, site, and system to edit</option>
               {amcCustomers.map((customer) => (
                 <option key={customer.CustomerID} value={customer.CustomerID}>
-                  {customer.CustomerName} - {customer.SiteName}
+                  {customer.CustomerName} - {customer.SiteName} - {customer.SystemName}
                 </option>
               ))}
             </select>
@@ -1274,9 +1289,29 @@ const td = {
 
           {showAmcForm && (
             <>
-              <h4 style={{ margin: "0 0 18px", color: "#1f3b5b" }}>
-                {editingAmcId ? "Edit AMC Customer Details" : "Add New AMC Customer"}
-              </h4>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "12px", marginBottom: "18px", flexWrap: "wrap" }}>
+                <h4 style={{ margin: 0, color: "#1f3b5b" }}>
+                  {editingAmcId ? "Edit AMC Customer Details" : "Add New AMC System"}
+                </h4>
+                {editingAmcId && (
+                  <button
+                    type="button"
+                    onClick={startAddingAnotherSystem}
+                    disabled={creatingAmc}
+                    style={{
+                      padding: "9px 14px",
+                      border: "1px solid #1976d2",
+                      borderRadius: "9px",
+                      background: "white",
+                      color: "#1976d2",
+                      fontWeight: "700",
+                      cursor: creatingAmc ? "not-allowed" : "pointer"
+                    }}
+                  >
+                    ➕ Add Another System for This Site
+                  </button>
+                )}
+              </div>
               <div style={styles.formRowGrid}>
                 <div>
                   <label style={styles.label}>Customer Name *</label>
@@ -1302,6 +1337,19 @@ const td = {
                     style={styles.input}
                   />
                 </div>
+              </div>
+
+              <div style={styles.formRow}>
+                <label style={styles.label}>System Name *</label>
+                <input
+                  name="systemName"
+                  placeholder="e.g. SCADA Server 1, WMS Server, PPC System"
+                  value={amcForm.systemName}
+                  onChange={handleAmcInputChange}
+                  disabled={creatingAmc}
+                  maxLength={100}
+                  style={styles.input}
+                />
               </div>
 
               <div style={styles.formRowGrid}>
@@ -1454,7 +1502,7 @@ const td = {
             {/* 2️⃣ AMC CUSTOMER DROPDOWN - ONLY WHEN AMC SELECTED */}
             {form.ticketType === "AMC" && (
               <div style={styles.formRow}>
-                <label style={styles.label}>🏢 AMC Site *</label>
+                <label style={styles.label}>🏢 AMC Site & System *</label>
                 <select 
                   name="amcCustomerId"
                   value={form.amcCustomerId}
@@ -1462,10 +1510,10 @@ const td = {
                   disabled={creating}
                   style={styles.input}
                 >
-                  <option value="">-- Select AMC Site ({amcCustomers.length}) --</option>
+                  <option value="">-- Select AMC Site & System ({amcCustomers.length}) --</option>
                   {amcCustomers.map(customer => (
                     <option key={customer.CustomerID} value={customer.CustomerID}>
-                      {customer.CustomerName} - {customer.SiteName}
+                      {customer.CustomerName} - {customer.SiteName} - {customer.SystemName}
                     </option>
                   ))}
                 </select>
@@ -1480,7 +1528,7 @@ const td = {
                     borderRadius: "12px"
                   }}>
                     <div style={{ fontWeight: "700", fontSize: "15px", marginBottom: "12px", color: "#1976d2" }}>
-                      📞 Site Contact & Remote Access
+                      📞 {selectedAmcCustomer.SystemName} — Site Contact & Remote Access
                     </div>
 
                     <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "14px", marginBottom: "12px" }}>

@@ -8,6 +8,7 @@ function validateAmcCustomer(input = {}) {
   const data = {
     customerName: cleanText(input.customerName),
     siteName: cleanText(input.siteName),
+    systemName: cleanText(input.systemName),
     siteContactName: cleanText(input.siteContactName),
     siteContactPhone: cleanText(input.siteContactPhone),
     remoteTool: cleanText(input.remoteTool),
@@ -18,8 +19,10 @@ function validateAmcCustomer(input = {}) {
 
   if (!data.customerName) errors.push("Customer Name is required");
   if (!data.siteName) errors.push("Site Name is required");
+  if (!data.systemName) errors.push("System Name is required");
   if (data.customerName.length > 255) errors.push("Customer Name must be 255 characters or fewer");
   if (data.siteName.length > 255) errors.push("Site Name must be 255 characters or fewer");
+  if (data.systemName.length > 100) errors.push("System Name must be 100 characters or fewer");
   if (data.siteContactName.length > 100) errors.push("Site Contact Name must be 100 characters or fewer");
   if (data.siteContactPhone.length > 20) errors.push("Site Contact Phone must be 20 characters or fewer");
   if (data.remoteId.length > 50) errors.push("Remote ID must be 50 characters or fewer");

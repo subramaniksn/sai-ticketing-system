@@ -25,24 +25,26 @@ function createAmcCustomerController({ pool }) {
          FROM "AMCCustomers"
          WHERE lower(btrim("CustomerName")) = lower($1)
            AND lower(btrim("SiteName")) = lower($2)
+           AND lower(btrim("SystemName")) = lower($3)
          LIMIT 1`,
-        [data.customerName, data.siteName]
+        [data.customerName, data.siteName, data.systemName]
       );
 
       if (duplicate.rows.length) {
-        return res.status(409).json({ msg: "This AMC customer and site already exists" });
+        return res.status(409).json({ msg: "This AMC customer, site, and system already exists" });
       }
 
       const encryptedPassword = encryptRemotePassword(data.remotePassword);
       const result = await pool.query(
         `INSERT INTO "AMCCustomers"
-         ("CustomerName","SiteName","SiteContactName","SiteContactPhone",
+         ("CustomerName","SiteName","SystemName","SiteContactName","SiteContactPhone",
           "RemoteTool","RemoteID","RemotePassword")
-         VALUES ($1,$2,$3,$4,$5,$6,$7)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
          RETURNING "CustomerID"`,
         [
           data.customerName,
           data.siteName,
+          data.systemName,
           data.siteContactName || null,
           data.siteContactPhone || null,
           data.remoteTool || null,
@@ -57,7 +59,7 @@ function createAmcCustomerController({ pool }) {
       });
     } catch (err) {
       if (err.code === "23505") {
-        return res.status(409).json({ msg: "This AMC customer and site already exists" });
+        return res.status(409).json({ msg: "This AMC customer, site, and system already exists" });
       }
       console.error("Insert AMC customer error:", err);
       return res.status(500).json({ msg: "Failed to add AMC customer" });
@@ -71,12 +73,12 @@ function createAmcCustomerController({ pool }) {
 
     try {
       const result = await pool.query(
-        `SELECT "CustomerID","CustomerName","SiteName",
+        `SELECT "CustomerID","CustomerName","SiteName","SystemName",
                 "SiteContactName","SiteContactPhone",
                 "RemoteTool","RemoteID",
                 ("RemotePassword" IS NOT NULL AND "RemotePassword" <> '') AS "HasRemotePassword"
          FROM "AMCCustomers"
-         ORDER BY "CustomerName", "SiteName"`
+         ORDER BY "CustomerName", "SiteName", "SystemName"`
       );
       res.set("Cache-Control", "no-store");
       return res.json(result.rows);
@@ -107,18 +109,20 @@ function createAmcCustomerController({ pool }) {
          FROM "AMCCustomers"
          WHERE lower(btrim("CustomerName")) = lower($1)
            AND lower(btrim("SiteName")) = lower($2)
-           AND "CustomerID" <> $3
+           AND lower(btrim("SystemName")) = lower($3)
+           AND "CustomerID" <> $4
          LIMIT 1`,
-        [data.customerName, data.siteName, customerId]
+        [data.customerName, data.siteName, data.systemName, customerId]
       );
 
       if (duplicate.rows.length) {
-        return res.status(409).json({ msg: "This AMC customer and site already exists" });
+        return res.status(409).json({ msg: "This AMC customer, site, and system already exists" });
       }
 
       const params = [
         data.customerName,
         data.siteName,
+        data.systemName,
         data.siteContactName || null,
         data.siteContactPhone || null,
         data.remoteTool || null,
@@ -136,10 +140,11 @@ function createAmcCustomerController({ pool }) {
         `UPDATE "AMCCustomers"
          SET "CustomerName" = $1,
              "SiteName" = $2,
-             "SiteContactName" = $3,
-             "SiteContactPhone" = $4,
-             "RemoteTool" = $5,
-             "RemoteID" = $6
+             "SystemName" = $3,
+             "SiteContactName" = $4,
+             "SiteContactPhone" = $5,
+             "RemoteTool" = $6,
+             "RemoteID" = $7
              ${passwordUpdate}
          WHERE "CustomerID" = $${params.length}
          RETURNING "CustomerID"`,
@@ -156,7 +161,7 @@ function createAmcCustomerController({ pool }) {
       });
     } catch (err) {
       if (err.code === "23505") {
-        return res.status(409).json({ msg: "This AMC customer and site already exists" });
+        return res.status(409).json({ msg: "This AMC customer, site, and system already exists" });
       }
       console.error("Update AMC customer error:", err);
       return res.status(500).json({ msg: "Failed to update AMC customer" });
