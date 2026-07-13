@@ -100,6 +100,108 @@ test("creates a validated AMC customer with an encrypted password", async () => 
   assert.notEqual(calls[1].params[6], validBody.remotePassword);
 });
 
+test("rejects AMC updates by non-dispatchers", async () => {
+  const pool = { query: async () => assert.fail("database should not be called") };
+  const controller = createAmcCustomerController({ pool });
+  const res = createResponse();
+
+  await controller.updateAmcCustomer(
+    { user: { role: "Engineer" }, params: { customerId: "7" }, body: validBody },
+    res
+  );
+
+  assert.equal(res.statusCode, 403);
+});
+
+test("updates AMC details without replacing the password when it is blank", async () => {
+  const calls = [];
+  const pool = {
+    query: async (sql, params) => {
+      calls.push({ sql, params });
+      return calls.length === 1 ? { rows: [] } : { rows: [{ CustomerID: 7 }] };
+    }
+  };
+  const controller = createAmcCustomerController({ pool });
+  const res = createResponse();
+
+  await controller.updateAmcCustomer(
+    {
+      user: { role: "Dispatcher" },
+      params: { customerId: "7" },
+      body: { ...validBody, siteContactName: "Updated Manager", remotePassword: "" }
+    },
+    res
+  );
+
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.body.customerId, 7);
+  assert.doesNotMatch(calls[1].sql, /SET[\s\S]*"RemotePassword"/);
+  assert.deepEqual(calls[1].params, [
+    "Example Energy",
+    "Pavagada Site",
+    "Updated Manager",
+    "+91 98765 43210",
+    "AnyDesk",
+    "123 456 789",
+    7
+  ]);
+});
+
+test("encrypts a new remote password during an AMC update", async () => {
+  const calls = [];
+  const pool = {
+    query: async (sql, params) => {
+      calls.push({ sql, params });
+      return calls.length === 1 ? { rows: [] } : { rows: [{ CustomerID: 7 }] };
+    }
+  };
+  const controller = createAmcCustomerController({ pool });
+  const res = createResponse();
+
+  await controller.updateAmcCustomer(
+    { user: { role: "Dispatcher" }, params: { customerId: "7" }, body: validBody },
+    res
+  );
+
+  assert.equal(res.statusCode, 200);
+  assert.match(calls[1].sql, /"RemotePassword"/);
+  assert.match(calls[1].params[6], /^enc:v1:/);
+  assert.notEqual(calls[1].params[6], validBody.remotePassword);
+});
+
+test("rejects an AMC update that duplicates another customer and site", async () => {
+  const pool = { query: async () => ({ rows: [{ CustomerID: 8 }] }) };
+  const controller = createAmcCustomerController({ pool });
+  const res = createResponse();
+
+  await controller.updateAmcCustomer(
+    { user: { role: "Dispatcher" }, params: { customerId: "7" }, body: validBody },
+    res
+  );
+
+  assert.equal(res.statusCode, 409);
+});
+
+test("returns not found when updating a missing AMC customer", async () => {
+  let callCount = 0;
+  const pool = {
+    query: async () => {
+      callCount += 1;
+      return { rows: [] };
+    }
+  };
+  const controller = createAmcCustomerController({ pool });
+  const res = createResponse();
+
+  await controller.updateAmcCustomer(
+    { user: { role: "Dispatcher" }, params: { customerId: "999" }, body: validBody },
+    res
+  );
+
+  assert.equal(callCount, 2);
+  assert.equal(res.statusCode, 404);
+});
+
 test("AMC list never returns remote passwords", async () => {
   const pool = {
     query: async () => ({ rows: [{ CustomerID: 7, CustomerName: "Example", HasRemotePassword: true }] })

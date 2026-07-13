@@ -86,6 +86,83 @@ function createAmcCustomerController({ pool }) {
     }
   }
 
+  async function updateAmcCustomer(req, res) {
+    if (!isDispatcher(req)) {
+      return res.status(403).json({ msg: "Only Dispatchers allowed" });
+    }
+
+    const customerId = Number.parseInt(req.params.customerId, 10);
+    if (!Number.isInteger(customerId) || customerId <= 0) {
+      return res.status(400).json({ msg: "Invalid AMC customer ID" });
+    }
+
+    const { data, errors } = validateAmcCustomer(req.body);
+    if (errors.length) {
+      return res.status(400).json({ msg: errors[0], errors });
+    }
+
+    try {
+      const duplicate = await pool.query(
+        `SELECT "CustomerID"
+         FROM "AMCCustomers"
+         WHERE lower(btrim("CustomerName")) = lower($1)
+           AND lower(btrim("SiteName")) = lower($2)
+           AND "CustomerID" <> $3
+         LIMIT 1`,
+        [data.customerName, data.siteName, customerId]
+      );
+
+      if (duplicate.rows.length) {
+        return res.status(409).json({ msg: "This AMC customer and site already exists" });
+      }
+
+      const params = [
+        data.customerName,
+        data.siteName,
+        data.siteContactName || null,
+        data.siteContactPhone || null,
+        data.remoteTool || null,
+        data.remoteId || null
+      ];
+      let passwordUpdate = "";
+
+      if (data.remotePassword) {
+        params.push(encryptRemotePassword(data.remotePassword));
+        passwordUpdate = `, "RemotePassword" = $${params.length}`;
+      }
+
+      params.push(customerId);
+      const result = await pool.query(
+        `UPDATE "AMCCustomers"
+         SET "CustomerName" = $1,
+             "SiteName" = $2,
+             "SiteContactName" = $3,
+             "SiteContactPhone" = $4,
+             "RemoteTool" = $5,
+             "RemoteID" = $6
+             ${passwordUpdate}
+         WHERE "CustomerID" = $${params.length}
+         RETURNING "CustomerID"`,
+        params
+      );
+
+      if (!result.rows.length) {
+        return res.status(404).json({ msg: "AMC Customer not found" });
+      }
+
+      return res.json({
+        msg: "AMC Customer updated successfully",
+        customerId: result.rows[0].CustomerID
+      });
+    } catch (err) {
+      if (err.code === "23505") {
+        return res.status(409).json({ msg: "This AMC customer and site already exists" });
+      }
+      console.error("Update AMC customer error:", err);
+      return res.status(500).json({ msg: "Failed to update AMC customer" });
+    }
+  }
+
   async function getRemotePassword(req, res) {
     if (!isDispatcher(req)) {
       return res.status(403).json({ msg: "Only Dispatchers allowed" });
@@ -156,6 +233,7 @@ function createAmcCustomerController({ pool }) {
 
   return {
     createAmcCustomer,
+    updateAmcCustomer,
     getAmcCustomers,
     getRemotePassword,
     getTicketRemotePassword

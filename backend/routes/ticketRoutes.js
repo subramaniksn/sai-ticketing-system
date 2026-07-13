@@ -11,6 +11,7 @@ const { validateManagerNotification } = require("../validation/managerNotificati
 const { notifyEngineerTicketCreated,sendWhatsApp } = require('../whatsappService');
 const {
   createAmcCustomer,
+  updateAmcCustomer,
   getAmcCustomers,
   getRemotePassword,
   getTicketRemotePassword
@@ -185,6 +186,7 @@ router.get("/all", verifyToken, async (req, res) => {
 
 // AMC customer management
 router.post("/amc/create", verifyToken, createAmcCustomer);
+router.put("/amc/:customerId", verifyToken, updateAmcCustomer);
 router.get("/amc", verifyToken, getAmcCustomers);
 router.get("/amc/:customerId/remote-password", verifyToken, getRemotePassword);
 router.get("/ticket/:ticketId/remote-password", verifyToken, getTicketRemotePassword);

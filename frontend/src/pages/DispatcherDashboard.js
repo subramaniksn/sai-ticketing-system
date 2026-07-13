@@ -394,6 +394,16 @@ const formatIstDate = (dateString) => {
   });
 };
 
+const emptyAmcForm = () => ({
+  customerName: "",
+  siteName: "",
+  siteContactName: "",
+  siteContactPhone: "",
+  remoteTool: "AnyDesk",
+  remoteId: "",
+  remotePassword: ""
+});
+
 export default function DispatcherDashboard() {
   const [selectedTicket, setSelectedTicket] = useState(null);
   const [tickets, setTickets] = useState([]);
@@ -412,15 +422,8 @@ export default function DispatcherDashboard() {
   // 🔥 NEW: Add AMC Customer form state
   const [showAmcForm, setShowAmcForm] = useState(false);
   const [creatingAmc, setCreatingAmc] = useState(false);
-  const [amcForm, setAmcForm] = useState({
-    customerName: "",
-    siteName: "",
-    siteContactName: "",
-    siteContactPhone: "",
-    remoteTool: "AnyDesk",
-    remoteId: "",
-    remotePassword: ""
-  });
+  const [editingAmcId, setEditingAmcId] = useState(null);
+  const [amcForm, setAmcForm] = useState(emptyAmcForm);
 
   // 🔥 NEW: Toggle to reveal/hide remote password when viewing AMC site details
   const [showRemotePwd, setShowRemotePwd] = useState(false);
@@ -637,7 +640,41 @@ useEffect(() => {
     setAmcForm({ ...amcForm, [e.target.name]: e.target.value });
   };
 
-  const createAmcCustomer = async () => {
+  const resetAmcEditor = () => {
+    setAmcForm(emptyAmcForm());
+    setEditingAmcId(null);
+    setShowAmcForm(false);
+  };
+
+  const startAddingAmcCustomer = () => {
+    setAmcForm(emptyAmcForm());
+    setEditingAmcId(null);
+    setShowAmcForm(true);
+  };
+
+  const startEditingAmcCustomer = (customerId) => {
+    const customer = amcCustomers.find(
+      (item) => String(item.CustomerID) === String(customerId)
+    );
+    if (!customer) {
+      resetAmcEditor();
+      return;
+    }
+
+    setEditingAmcId(customer.CustomerID);
+    setAmcForm({
+      customerName: customer.CustomerName || "",
+      siteName: customer.SiteName || "",
+      siteContactName: customer.SiteContactName || "",
+      siteContactPhone: customer.SiteContactPhone || "",
+      remoteTool: customer.RemoteTool || "AnyDesk",
+      remoteId: customer.RemoteID || "",
+      remotePassword: ""
+    });
+    setShowAmcForm(true);
+  };
+
+  const saveAmcCustomer = async () => {
     if (!amcForm.customerName.trim() || !amcForm.siteName.trim()) {
       alert("❌ Customer Name and Site Name are required");
       return;
@@ -664,27 +701,25 @@ useEffect(() => {
         remoteId: amcForm.remoteId.trim()
       };
 
-      await API.post("/tickets/amc/create", payload, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      if (editingAmcId) {
+        await API.put(`/tickets/amc/${editingAmcId}`, payload, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+      } else {
+        await API.post("/tickets/amc/create", payload, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+      }
 
-      alert("✅ AMC Customer added successfully!");
+      alert(editingAmcId
+        ? "✅ AMC Customer updated successfully!"
+        : "✅ AMC Customer added successfully!");
 
-      setAmcForm({
-        customerName: "",
-        siteName: "",
-        siteContactName: "",
-        siteContactPhone: "",
-        remoteTool: "AnyDesk",
-        remoteId: "",
-        remotePassword: ""
-      });
-
-      setShowAmcForm(false);
+      resetAmcEditor();
       await loadAmcCustomers(); // refreshes the AMC dropdown used in ticket creation too
     } catch (err) {
-      console.error("Create AMC customer error:", err);
-      alert("❌ Failed to add AMC customer: " + (err.response?.data?.msg || "Please try again"));
+      console.error("Save AMC customer error:", err);
+      alert(`❌ Failed to ${editingAmcId ? "update" : "add"} AMC customer: ${err.response?.data?.msg || "Please try again"}`);
     } finally {
       setCreatingAmc(false);
     }
@@ -1202,10 +1237,10 @@ const td = {
       {/* 🏢 AMC CUSTOMER MANAGEMENT */}
       <div style={styles.formSection}>
         <div style={styles.formCard}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: showAmcForm ? "24px" : 0 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px", gap: "12px", flexWrap: "wrap" }}>
             <h3 style={{ ...styles.sectionTitle, margin: 0 }}>🏢 AMC Customers ({amcCustomers.length})</h3>
             <button
-              onClick={() => setShowAmcForm(!showAmcForm)}
+              onClick={showAmcForm ? resetAmcEditor : startAddingAmcCustomer}
               style={{
                 padding: "10px 20px",
                 background: showAmcForm ? "#6c757d" : "#1976d2",
@@ -1220,8 +1255,28 @@ const td = {
             </button>
           </div>
 
+          <div style={{ marginBottom: showAmcForm ? "20px" : 0 }}>
+            <label style={styles.label}>Edit Existing AMC Customer / Site</label>
+            <select
+              value={editingAmcId || ""}
+              onChange={(e) => startEditingAmcCustomer(e.target.value)}
+              disabled={creatingAmc || amcLoading}
+              style={styles.selectFull}
+            >
+              <option value="">Select a customer and site to edit</option>
+              {amcCustomers.map((customer) => (
+                <option key={customer.CustomerID} value={customer.CustomerID}>
+                  {customer.CustomerName} - {customer.SiteName}
+                </option>
+              ))}
+            </select>
+          </div>
+
           {showAmcForm && (
             <>
+              <h4 style={{ margin: "0 0 18px", color: "#1f3b5b" }}>
+                {editingAmcId ? "Edit AMC Customer Details" : "Add New AMC Customer"}
+              </h4>
               <div style={styles.formRowGrid}>
                 <div>
                   <label style={styles.label}>Customer Name *</label>
@@ -1311,7 +1366,7 @@ const td = {
                 <input
                   type="password"
                   name="remotePassword"
-                  placeholder="Remote access password"
+                  placeholder={editingAmcId ? "Leave blank to keep the current password" : "Remote access password"}
                   value={amcForm.remotePassword}
                   onChange={handleAmcInputChange}
                   disabled={creatingAmc}
@@ -1322,7 +1377,7 @@ const td = {
               </div>
 
               <button
-                onClick={createAmcCustomer}
+                onClick={saveAmcCustomer}
                 disabled={creatingAmc}
                 style={{
                   ...styles.createButton,
@@ -1330,7 +1385,11 @@ const td = {
                   cursor: creatingAmc ? "not-allowed" : "pointer"
                 }}
               >
-                {creatingAmc ? "💾 Saving..." : "✅ Save AMC Customer"}
+                {creatingAmc
+                  ? "💾 Saving..."
+                  : editingAmcId
+                    ? "✅ Update AMC Customer"
+                    : "✅ Save AMC Customer"}
               </button>
             </>
           )}
