@@ -1,5 +1,6 @@
 import React, { useState, useCallback, useMemo, useEffect } from "react";
 import API from "../api";
+import AmcAccessDetails from "../components/AmcAccessDetails";
 
 // ✅ FIXED STYLES - NO CIRCULAR REFERENCES (input defined FIRST)
 const styles = {
@@ -408,6 +409,24 @@ export default function DispatcherDashboard() {
   const [amcCustomers, setAmcCustomers] = useState([]);
   const [amcLoading, setAmcLoading] = useState(false);
 
+  // 🔥 NEW: Add AMC Customer form state
+  const [showAmcForm, setShowAmcForm] = useState(false);
+  const [creatingAmc, setCreatingAmc] = useState(false);
+  const [amcForm, setAmcForm] = useState({
+    customerName: "",
+    siteName: "",
+    siteContactName: "",
+    siteContactPhone: "",
+    remoteTool: "AnyDesk",
+    remoteId: "",
+    remotePassword: ""
+  });
+
+  // 🔥 NEW: Toggle to reveal/hide remote password when viewing AMC site details
+  const [showRemotePwd, setShowRemotePwd] = useState(false);
+  const [remotePassword, setRemotePassword] = useState("");
+  const [remotePasswordLoading, setRemotePasswordLoading] = useState(false);
+
   const engineers = [
     "sarumathy@saiautomation.co.in",
     "vishva@saiautomation.co.in",
@@ -513,6 +532,50 @@ useEffect(() => {
   }
 }, [form.ticketType, form.amcCustomerId, amcCustomers]); // ✅ Perfect deps
 
+  // 🔥 NEW: Reset password visibility whenever a different AMC site is selected
+  useEffect(() => {
+    setShowRemotePwd(false);
+    setRemotePassword("");
+  }, [form.amcCustomerId]);
+
+  // 🔥 NEW: Derive the full selected AMC customer record (contact + remote access details)
+  const selectedAmcCustomer = useMemo(() => {
+    if (form.ticketType !== "AMC" || !form.amcCustomerId) return null;
+    return amcCustomers.find(c => c.CustomerID.toString() === form.amcCustomerId) || null;
+  }, [form.ticketType, form.amcCustomerId, amcCustomers]);
+
+  // 🔥 NEW: Small clipboard helper for contact/remote fields
+  const copyToClipboard = async (text, label) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      alert(`📋 ${label} copied!`);
+    } catch (err) {
+      console.error("Clipboard error:", err);
+      alert(`❌ Could not copy ${label}. Please copy it manually.`);
+    }
+  };
+
+  const toggleRemotePassword = async () => {
+    if (showRemotePwd) {
+      setShowRemotePwd(false);
+      setRemotePassword("");
+      return;
+    }
+
+    if (!form.amcCustomerId) return;
+
+    try {
+      setRemotePasswordLoading(true);
+      const res = await API.get(`/tickets/amc/${form.amcCustomerId}/remote-password`);
+      setRemotePassword(res.data?.password || "");
+      setShowRemotePwd(true);
+    } catch (err) {
+      console.error("Remote password load error:", err);
+      alert("❌ " + (err.response?.data?.msg || "Failed to load remote password"));
+    } finally {
+      setRemotePasswordLoading(false);
+    }
+  };
 
   const createTicket = async () => {
     // ✅ FIXED: Smart validation for AMC vs Manual
@@ -569,6 +632,63 @@ useEffect(() => {
     }
   };
 
+  // 🔥 NEW: Add AMC Customer handlers
+  const handleAmcInputChange = (e) => {
+    setAmcForm({ ...amcForm, [e.target.name]: e.target.value });
+  };
+
+  const createAmcCustomer = async () => {
+    if (!amcForm.customerName.trim() || !amcForm.siteName.trim()) {
+      alert("❌ Customer Name and Site Name are required");
+      return;
+    }
+
+    if (amcForm.siteContactPhone.trim()) {
+      const digits = amcForm.siteContactPhone.replace(/\D/g, "");
+      if (digits.length < 10 || digits.length > 15 || !/^\+?[\d\s().-]+$/.test(amcForm.siteContactPhone.trim())) {
+        alert("❌ Site Contact Phone must contain 10 to 15 digits");
+        return;
+      }
+    }
+
+    try {
+      setCreatingAmc(true);
+      const token = localStorage.getItem("token");
+
+      const payload = {
+        ...amcForm,
+        customerName: amcForm.customerName.trim(),
+        siteName: amcForm.siteName.trim(),
+        siteContactName: amcForm.siteContactName.trim(),
+        siteContactPhone: amcForm.siteContactPhone.trim(),
+        remoteId: amcForm.remoteId.trim()
+      };
+
+      await API.post("/tickets/amc/create", payload, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+
+      alert("✅ AMC Customer added successfully!");
+
+      setAmcForm({
+        customerName: "",
+        siteName: "",
+        siteContactName: "",
+        siteContactPhone: "",
+        remoteTool: "AnyDesk",
+        remoteId: "",
+        remotePassword: ""
+      });
+
+      setShowAmcForm(false);
+      await loadAmcCustomers(); // refreshes the AMC dropdown used in ticket creation too
+    } catch (err) {
+      console.error("Create AMC customer error:", err);
+      alert("❌ Failed to add AMC customer: " + (err.response?.data?.msg || "Please try again"));
+    } finally {
+      setCreatingAmc(false);
+    }
+  };
 
   const handleInputChange = (e) => {
     setForm({ ...form, [e.target.name]: e.target.value });
@@ -694,6 +814,8 @@ useEffect(() => {
         <span style={styles.infoLabel}>Site</span>
         <span style={styles.infoValue}>{ticket.SiteName}</span>
       </div>
+
+      <AmcAccessDetails ticket={ticket} />
 
       {/* 🔥 REASSIGN DROPDOWN */}
       <div style={styles.infoItem}>
@@ -1076,6 +1198,145 @@ const td = {
           </div>
         </div>
       )}
+
+      {/* 🏢 AMC CUSTOMER MANAGEMENT */}
+      <div style={styles.formSection}>
+        <div style={styles.formCard}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: showAmcForm ? "24px" : 0 }}>
+            <h3 style={{ ...styles.sectionTitle, margin: 0 }}>🏢 AMC Customers ({amcCustomers.length})</h3>
+            <button
+              onClick={() => setShowAmcForm(!showAmcForm)}
+              style={{
+                padding: "10px 20px",
+                background: showAmcForm ? "#6c757d" : "#1976d2",
+                color: "white",
+                border: "none",
+                borderRadius: "10px",
+                fontWeight: "600",
+                cursor: "pointer"
+              }}
+            >
+              {showAmcForm ? "✕ Cancel" : "➕ Add AMC Customer"}
+            </button>
+          </div>
+
+          {showAmcForm && (
+            <>
+              <div style={styles.formRowGrid}>
+                <div>
+                  <label style={styles.label}>Customer Name *</label>
+                  <input
+                    name="customerName"
+                    placeholder="e.g. Adyah Solar Energy Pvt Ltd"
+                    value={amcForm.customerName}
+                    onChange={handleAmcInputChange}
+                    disabled={creatingAmc}
+                    maxLength={255}
+                    style={styles.input}
+                  />
+                </div>
+                <div>
+                  <label style={styles.label}>Site Name *</label>
+                  <input
+                    name="siteName"
+                    placeholder="e.g. Adya Solar, Pavagada - Block-1"
+                    value={amcForm.siteName}
+                    onChange={handleAmcInputChange}
+                    disabled={creatingAmc}
+                    maxLength={255}
+                    style={styles.input}
+                  />
+                </div>
+              </div>
+
+              <div style={styles.formRowGrid}>
+                <div>
+                  <label style={styles.label}>Site Contact Name</label>
+                  <input
+                    name="siteContactName"
+                    placeholder="Contact person at site"
+                    value={amcForm.siteContactName}
+                    onChange={handleAmcInputChange}
+                    disabled={creatingAmc}
+                    maxLength={100}
+                    style={styles.input}
+                  />
+                </div>
+                <div>
+                  <label style={styles.label}>Site Contact Phone</label>
+                  <input
+                    name="siteContactPhone"
+                    placeholder="10-digit mobile number"
+                    value={amcForm.siteContactPhone}
+                    onChange={handleAmcInputChange}
+                    disabled={creatingAmc}
+                    inputMode="tel"
+                    maxLength={20}
+                    style={styles.input}
+                  />
+                </div>
+              </div>
+
+              <div style={styles.formRowGrid}>
+                <div>
+                  <label style={styles.label}>🖥 Remote Tool</label>
+                  <select
+                    name="remoteTool"
+                    value={amcForm.remoteTool}
+                    onChange={handleAmcInputChange}
+                    disabled={creatingAmc}
+                    style={styles.selectFull}
+                  >
+                    <option value="AnyDesk">AnyDesk</option>
+                    <option value="UltraViewer">UltraViewer</option>
+                    <option value="TeamViewer">TeamViewer</option>
+                  </select>
+                </div>
+                <div>
+                  <label style={styles.label}>Remote ID</label>
+                  <input
+                    name="remoteId"
+                    placeholder="e.g. 123 456 789"
+                    value={amcForm.remoteId}
+                    onChange={handleAmcInputChange}
+                    disabled={creatingAmc}
+                    maxLength={50}
+                    style={styles.input}
+                  />
+                </div>
+              </div>
+
+              <div style={styles.formRow}>
+                <label style={styles.label}>Remote Password</label>
+                <input
+                  type="password"
+                  name="remotePassword"
+                  placeholder="Remote access password"
+                  value={amcForm.remotePassword}
+                  onChange={handleAmcInputChange}
+                  disabled={creatingAmc}
+                  autoComplete="new-password"
+                  maxLength={255}
+                  style={styles.input}
+                />
+              </div>
+
+              <button
+                onClick={createAmcCustomer}
+                disabled={creatingAmc}
+                style={{
+                  ...styles.createButton,
+                  opacity: creatingAmc ? 0.7 : 1,
+                  cursor: creatingAmc ? "not-allowed" : "pointer"
+                }}
+              >
+                {creatingAmc ? "💾 Saving..." : "✅ Save AMC Customer"}
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+
       {/* Status Cards */}
       <div style={styles.statusGrid}>
         {Object.entries(summary).map(([key, value]) => (
@@ -1149,6 +1410,86 @@ const td = {
                     </option>
                   ))}
                 </select>
+
+                {/* 🔥 NEW: Site contact + remote access details, fetched the moment a site is selected */}
+                {selectedAmcCustomer && (
+                  <div style={{
+                    marginTop: "16px",
+                    padding: "18px 20px",
+                    background: "#f0f7ff",
+                    border: "2px solid #cfe2ff",
+                    borderRadius: "12px"
+                  }}>
+                    <div style={{ fontWeight: "700", fontSize: "15px", marginBottom: "12px", color: "#1976d2" }}>
+                      📞 Site Contact & Remote Access
+                    </div>
+
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "14px", marginBottom: "12px" }}>
+                      <div>
+                        <div style={styles.infoLabel}>Contact Person</div>
+                        <div style={styles.infoValue}>{selectedAmcCustomer.SiteContactName || "—"}</div>
+                      </div>
+                      <div>
+                        <div style={styles.infoLabel}>Contact Phone</div>
+                        <div style={styles.infoValue}>
+                          {selectedAmcCustomer.SiteContactPhone || "—"}
+                          {selectedAmcCustomer.SiteContactPhone && (
+                            <button
+                              onClick={() => copyToClipboard(selectedAmcCustomer.SiteContactPhone, "Phone")}
+                              style={{ marginLeft: "8px", border: "none", background: "none", cursor: "pointer" }}
+                            >📋</button>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "14px" }}>
+                      <div>
+                        <div style={styles.infoLabel}>Remote Tool</div>
+                        <div style={styles.infoValue}>{selectedAmcCustomer.RemoteTool || "—"}</div>
+                      </div>
+                      <div>
+                        <div style={styles.infoLabel}>Remote ID</div>
+                        <div style={styles.infoValue}>
+                          {selectedAmcCustomer.RemoteID || "—"}
+                          {selectedAmcCustomer.RemoteID && (
+                            <button
+                              onClick={() => copyToClipboard(selectedAmcCustomer.RemoteID, "Remote ID")}
+                              style={{ marginLeft: "8px", border: "none", background: "none", cursor: "pointer" }}
+                            >📋</button>
+                          )}
+                        </div>
+                      </div>
+                      <div>
+                        <div style={styles.infoLabel}>Remote Password</div>
+                        <div style={styles.infoValue}>
+                          {selectedAmcCustomer.HasRemotePassword
+                            ? (showRemotePwd ? (remotePassword || "—") : "••••••••")
+                            : "—"}
+                          {selectedAmcCustomer.HasRemotePassword && (
+                            <>
+                              <button
+                                type="button"
+                                onClick={toggleRemotePassword}
+                                disabled={remotePasswordLoading}
+                                aria-label={showRemotePwd ? "Hide remote password" : "Show remote password"}
+                                style={{ marginLeft: "8px", border: "none", background: "none", cursor: "pointer" }}
+                              >{remotePasswordLoading ? "…" : (showRemotePwd ? "🙈" : "👁")}</button>
+                              {showRemotePwd && remotePassword && (
+                                <button
+                                  type="button"
+                                  onClick={() => copyToClipboard(remotePassword, "Password")}
+                                  aria-label="Copy remote password"
+                                  style={{ marginLeft: "4px", border: "none", background: "none", cursor: "pointer" }}
+                                >📋</button>
+                              )}
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 

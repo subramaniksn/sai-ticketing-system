@@ -2,6 +2,10 @@
   "name": "support-backend",
   "version": "1.0.0",
   "main": "server.js",
+  "scripts": {
+    "test": "node --test tests",
+    "setup:amc-security": "node scripts/setupAmcSecurity.js"
+  },
   "dependencies": {
     "@whiskeysockets/baileys": "^7.0.0-rc13",
     "bcrypt": "^6.0.0",

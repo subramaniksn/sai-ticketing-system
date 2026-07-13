@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import API from "../api";
+import AmcAccessDetails from "../components/AmcAccessDetails";
 
 
 const parseSqlDate = (dateString) => {
@@ -103,7 +104,7 @@ const styles = {
   },
   filterRow: {
     display: "grid",
-    gridTemplateColumns: "1fr 1fr 1fr auto",
+    gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))",
     gap: "20px",
     marginBottom: "25px",
     alignItems: "end"
@@ -241,6 +242,8 @@ function TicketModal({ ticket, onClose }) {
           📍 {getStatusIcon(ticket.Status)} {ticket.Status}
         </div>
 
+        <AmcAccessDetails ticket={ticket} canRevealPassword={false} />
+
         {/* Timestamps */}
         {ticket.CreatedTime && (
           <div style={timestampStyle}>🕒 Created: {formatIstDate(ticket.CreatedTime)}</div>
@@ -294,6 +297,7 @@ export default function ManagerDashboard() {
   const navigate = useNavigate();
   const [tickets, setTickets] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const [downloadLoading, setDownloadLoading] = useState(false);
   const [startDate, setStartDate] = useState('');
@@ -317,18 +321,25 @@ export default function ManagerDashboard() {
   const loadTickets = useCallback(async () => {
     try {
       setLoading(true);
+      setLoadError("");
       const token = localStorage.getItem("token");
-      if (!token) throw new Error("No token found");
+      if (!token) {
+        navigate("/", { replace: true });
+        return;
+      }
       const res = await API.get("/tickets/escalated", {
         headers: { Authorization: `Bearer ${token}` }
       });
-      setTickets(res.data || []);
-      setCustomers(Array.from(new Set(res.data.map(t => t.CustomerName).filter(Boolean))).sort());
+      const data = Array.isArray(res.data) ? res.data : [];
+      setTickets(data);
+      setCustomers(Array.from(new Set(data.map(t => t.CustomerName).filter(Boolean))).sort());
     } catch (err) {
       if (err.response?.status === 401) {
         localStorage.clear();
         navigate("/", { replace: true });
+        return;
       }
+      setLoadError(err.response?.data?.msg || "Failed to load manager tickets. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -336,6 +347,7 @@ export default function ManagerDashboard() {
 
   const handleDownload = async () => {
     if (!startDate || !endDate) { alert("Please select both start and end dates"); return; }
+    if (startDate > endDate) { alert("Start date cannot be after end date"); return; }
     try {
       setDownloadLoading(true);
       const token = localStorage.getItem("token");
@@ -354,19 +366,45 @@ export default function ManagerDashboard() {
       link.remove();
       window.URL.revokeObjectURL(url);
     } catch (err) {
-      if (err.response?.data) {
-        const reader = new FileReader();
-        reader.onload = () => alert("❌ " + reader.result);
-        reader.readAsText(err.response.data);
-      } else {
-        alert("❌ Download failed");
+      let message = "Download failed";
+      if (err.response?.data instanceof Blob) {
+        const text = await err.response.data.text();
+        try { message = JSON.parse(text).msg || message; } catch { message = text || message; }
+      } else if (err.response?.data?.msg) {
+        message = err.response.data.msg;
       }
+      alert("❌ " + message);
     } finally {
       setDownloadLoading(false);
     }
   };
 
   const handleLogout = () => { localStorage.clear(); window.location.href = "/"; };
+
+  const sendNotification = async () => {
+    const payload = {
+      ...notifyForm,
+      customerName: notifyForm.customerName.trim(),
+      siteName: notifyForm.siteName.trim(),
+      issueDetails: notifyForm.issueDetails.trim()
+    };
+    if (!payload.customerName || !payload.siteName || !payload.issueDetails) {
+      alert("Please fill all required fields");
+      return;
+    }
+
+    try {
+      setNotifySending(true);
+      await API.post("/tickets/manager-notify", payload);
+      alert("✅ Notification sent to Dispatcher!");
+      setNotifyForm({ customerName: "", siteName: "", issueDetails: "", priority: "Medium" });
+      setShowNotifyForm(false);
+    } catch (err) {
+      alert("❌ " + (err.response?.data?.msg || "Failed to send notification"));
+    } finally {
+      setNotifySending(false);
+    }
+  };
 
   useEffect(() => { loadTickets(); }, [loadTickets]);
 
@@ -417,6 +455,35 @@ export default function ManagerDashboard() {
       {/* TICKET DETAIL MODAL */}
       <TicketModal ticket={selectedTicket} onClose={() => setSelectedTicket(null)} />
 
+      {/* HEADER */}
+      <div style={styles.header}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
+            <img src="/logo.png" alt="SAI Automation" style={styles.logo} />
+            <div>
+              <h1 style={styles.title}>🚨 SAI Manager Dashboard</h1>
+              <div style={styles.headerStats}>
+                Total: <strong>{summary.Total}</strong> | Open: <strong style={{ color: "#e74c3c" }}>{summary.Open}</strong>
+              </div>
+            </div>
+          </div>
+          <button onClick={() => setShowLogoutConfirm(true)} style={styles.logoutButton}>🚪 Logout</button>
+        </div>
+      </div>
+
+      {loadError && (
+        <div style={{
+          marginBottom: "20px", padding: "16px 18px", background: "#fee2e2",
+          color: "#b91c1c", borderRadius: "10px", borderLeft: "5px solid #ef4444",
+          display: "flex", justifyContent: "space-between", alignItems: "center", gap: "12px"
+        }}>
+          <span>{loadError}</span>
+          <button onClick={loadTickets} style={{ padding: "8px 14px", border: "none", borderRadius: "8px", background: "#dc2626", color: "white", cursor: "pointer", fontWeight: "700" }}>
+            Retry
+          </button>
+        </div>
+      )}
+
       {/* DOWNLOAD PANEL */}
       <div style={styles.downloadPanel}>
         <h2 style={styles.downloadTitle}>📥 Download Ticket Report</h2>
@@ -439,25 +506,9 @@ export default function ManagerDashboard() {
             </select>
           </div>
           <button onClick={handleDownload} disabled={!startDate || !endDate || downloadLoading}
-            style={{ ...styles.downloadBtn, ...(downloadLoading ? styles.downloadBtnDisabled : {}) }}>
+            style={{ ...styles.downloadBtn, ...((!startDate || !endDate || downloadLoading) ? styles.downloadBtnDisabled : {}) }}>
             {downloadLoading ? "⏳ Downloading..." : "📊 Download CSV"}
           </button>
-        </div>
-      </div>
-
-      {/* HEADER */}
-      <div style={styles.header}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
-            <img src="/logo.png" alt="SAI Automation" style={styles.logo} />
-            <div>
-              <h1 style={styles.title}>🚨 SAI Manager Dashboard</h1>
-              <div style={styles.headerStats}>
-                Total: <strong>{summary.Total}</strong> | Open: <strong style={{ color: "#e74c3c" }}>{summary.Open}</strong>
-              </div>
-            </div>
-          </div>
-          <button onClick={() => setShowLogoutConfirm(true)} style={styles.logoutButton}>🚪 Logout</button>
         </div>
       </div>
 
@@ -478,12 +529,14 @@ export default function ManagerDashboard() {
         placeholder="Customer Name *"
         value={notifyForm.customerName}
         onChange={e => setNotifyForm({...notifyForm, customerName: e.target.value})}
+        maxLength={255}
         style={{padding:'10px', borderRadius:'6px', border:'1px solid #ddd', fontSize:'14px'}}
       />
       <input
         placeholder="Site Name *"
         value={notifyForm.siteName}
         onChange={e => setNotifyForm({...notifyForm, siteName: e.target.value})}
+        maxLength={255}
         style={{padding:'10px', borderRadius:'6px', border:'1px solid #ddd', fontSize:'14px'}}
       />
       <textarea
@@ -491,6 +544,7 @@ export default function ManagerDashboard() {
         value={notifyForm.issueDetails}
         onChange={e => setNotifyForm({...notifyForm, issueDetails: e.target.value})}
         rows={3}
+        maxLength={5000}
         style={{padding:'10px', borderRadius:'6px', border:'1px solid #ddd', fontSize:'14px', resize:'vertical'}}
       />
       <select
@@ -502,22 +556,7 @@ export default function ManagerDashboard() {
         <option value="Low">🟢 Low</option>
       </select>
       <button
-        onClick={async () => {
-          if (!notifyForm.customerName || !notifyForm.siteName || !notifyForm.issueDetails) {
-            alert('Please fill all fields');
-            return;
-          }
-          setNotifySending(true);
-          try {
-            await API.post('/tickets/manager-notify', notifyForm);
-            alert('✅ Notification sent to Dispatcher!');
-            setNotifyForm({customerName:'', siteName:'', issueDetails:'', priority:'Medium'});
-            setShowNotifyForm(false);
-          } catch (err) {
-            alert('❌ Failed to send notification');
-          }
-          setNotifySending(false);
-        }}
+        onClick={sendNotification}
         disabled={notifySending}
         style={{background:'#28a745', color:'white', border:'none', padding:'12px', borderRadius:'6px', cursor:'pointer', fontWeight:'bold', fontSize:'15px'}}>
         {notifySending ? '⏳ Sending...' : '📤 Send to Dispatcher'}

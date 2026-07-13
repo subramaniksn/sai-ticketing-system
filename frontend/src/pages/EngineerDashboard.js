@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import API from "../api";
+import AmcAccessDetails from "../components/AmcAccessDetails";
 
 // ✅ IST DATE FORMATTER — matches DispatcherDashboard exactly
 const formatIstDate = (dateString) => {
@@ -454,6 +455,8 @@ export default function EngineerDashboard() {
                     </div>
 
                     <div style={styles.infoRow}><strong>Issue:</strong>&nbsp;{t.IssueDetails}</div>
+
+                    <AmcAccessDetails ticket={t} />
 
                     <div style={{
                       ...styles.statusBadge,

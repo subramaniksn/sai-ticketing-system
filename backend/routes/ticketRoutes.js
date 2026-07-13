@@ -4,9 +4,17 @@ const pool = require("../db");
 const verifyToken = require("../middleware/authMiddleware");
 const createCsvWriter = require('csv-writer').createObjectCsvWriter;
 const fs = require('fs');
+const { createAmcCustomerController } = require("../controllers/amcCustomerController");
+const { validateManagerNotification } = require("../validation/managerNotificationValidation");
 
 // ✅ NEW: WhatsApp notification
 const { notifyEngineerTicketCreated,sendWhatsApp } = require('../whatsappService');
+const {
+  createAmcCustomer,
+  getAmcCustomers,
+  getRemotePassword,
+  getTicketRemotePassword
+} = createAmcCustomerController({ pool });
 
 // ✅ Generate Ticket No Function (PostgreSQL)
 async function generateTicketNo() {
@@ -139,25 +147,32 @@ router.get("/all", verifyToken, async (req, res) => {
 
     const result = await pool.query(
       `SELECT
-        "TicketID",
-        "TicketNo",
-        "CustomerName",
-        "SiteName",
-        "IssueDetails",
-        "AssignedTo",
-        "Status",
-        "Remark",
-        "CreatedTime"::timestamptz AT TIME ZONE 'Asia/Kolkata' AS "CreatedTime",
-        "ResolvedTime"::timestamptz AT TIME ZONE 'Asia/Kolkata' AS "ResolvedTime",
-        "Escalated",
-        "InProgress_Date"::timestamptz AT TIME ZONE 'Asia/Kolkata' AS "InProgress_Date",
-        "Pending_Date"::timestamptz AT TIME ZONE 'Asia/Kolkata' AS "Pending_Date",
-        "Resolved_Date"::timestamptz AT TIME ZONE 'Asia/Kolkata' AS "Resolved_Date",
-        "priority",
-        "AmcCustomerId",
-        "TicketType"
-      FROM "Tickets"
-      ORDER BY "CreatedTime"::timestamptz AT TIME ZONE 'Asia/Kolkata' DESC;`
+        t."TicketID",
+        t."TicketNo",
+        t."CustomerName",
+        t."SiteName",
+        t."IssueDetails",
+        t."AssignedTo",
+        t."Status",
+        t."Remark",
+        t."CreatedTime"::timestamptz AT TIME ZONE 'Asia/Kolkata' AS "CreatedTime",
+        t."ResolvedTime"::timestamptz AT TIME ZONE 'Asia/Kolkata' AS "ResolvedTime",
+        t."Escalated",
+        t."InProgress_Date"::timestamptz AT TIME ZONE 'Asia/Kolkata' AS "InProgress_Date",
+        t."Pending_Date"::timestamptz AT TIME ZONE 'Asia/Kolkata' AS "Pending_Date",
+        t."Resolved_Date"::timestamptz AT TIME ZONE 'Asia/Kolkata' AS "Resolved_Date",
+        t."priority",
+        t."AmcCustomerId",
+        t."TicketType",
+        a."SiteContactName",
+        a."SiteContactPhone",
+        a."RemoteTool",
+        a."RemoteID",
+        (a."RemotePassword" IS NOT NULL AND a."RemotePassword" <> '') AS "HasRemotePassword"
+      FROM "Tickets" t
+      LEFT JOIN "AMCCustomers" a
+        ON a."CustomerID" = t."AmcCustomerId"
+      ORDER BY t."CreatedTime"::timestamptz AT TIME ZONE 'Asia/Kolkata' DESC;`
     );
 
     res.json(result.rows);
@@ -168,27 +183,11 @@ router.get("/all", verifyToken, async (req, res) => {
   }
 });
 
-
-// ✅ Get AMC Customers
-router.get("/amc", verifyToken, async (req, res) => {
-  try {
-    if (req.user.role !== "Dispatcher") {
-      return res.status(403).json({ msg: "Only Dispatchers allowed" });
-    }
-
-    const result = await pool.query(
-      `SELECT "CustomerID","CustomerName","SiteName"
-       FROM "AMCCustomers"
-       ORDER BY "CustomerName"`
-    );
-
-    res.json(result.rows);
-
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ msg: "Failed to load AMC customers" });
-  }
-});
+// AMC customer management
+router.post("/amc/create", verifyToken, createAmcCustomer);
+router.get("/amc", verifyToken, getAmcCustomers);
+router.get("/amc/:customerId/remote-password", verifyToken, getRemotePassword);
+router.get("/ticket/:ticketId/remote-password", verifyToken, getTicketRemotePassword);
 
 
 // ✅ Engineer My Tickets
@@ -199,27 +198,34 @@ router.get("/mytickets", verifyToken, async (req, res) => {
     }
 
     const result = await pool.query(
-      `SELECT 
-        "TicketID",
-        "TicketNo",
-        "CustomerName",
-        "SiteName",
-        "IssueDetails",
-        "AssignedTo",
-        "Status",
-        "Remark",
-        "CreatedTime"::timestamptz AT TIME ZONE 'Asia/Kolkata' AS "CreatedTime",
-        "ResolvedTime"::timestamptz AT TIME ZONE 'Asia/Kolkata' AS "ResolvedTime",
-        "Escalated",
-        "InProgress_Date"::timestamptz AT TIME ZONE 'Asia/Kolkata' AS "InProgress_Date",
-        "Pending_Date"::timestamptz AT TIME ZONE 'Asia/Kolkata' AS "Pending_Date",
-        "Resolved_Date"::timestamptz AT TIME ZONE 'Asia/Kolkata' AS "Resolved_Date",
-        "priority",
-        "AmcCustomerId",
-        "TicketType"
-      FROM "Tickets"
-      WHERE "AssignedTo" = $1
-      ORDER BY "CreatedTime"::timestamptz AT TIME ZONE 'Asia/Kolkata' DESC`,
+      `SELECT
+        t."TicketID",
+        t."TicketNo",
+        t."CustomerName",
+        t."SiteName",
+        t."IssueDetails",
+        t."AssignedTo",
+        t."Status",
+        t."Remark",
+        t."CreatedTime"::timestamptz AT TIME ZONE 'Asia/Kolkata' AS "CreatedTime",
+        t."ResolvedTime"::timestamptz AT TIME ZONE 'Asia/Kolkata' AS "ResolvedTime",
+        t."Escalated",
+        t."InProgress_Date"::timestamptz AT TIME ZONE 'Asia/Kolkata' AS "InProgress_Date",
+        t."Pending_Date"::timestamptz AT TIME ZONE 'Asia/Kolkata' AS "Pending_Date",
+        t."Resolved_Date"::timestamptz AT TIME ZONE 'Asia/Kolkata' AS "Resolved_Date",
+        t."priority",
+        t."AmcCustomerId",
+        t."TicketType",
+        a."SiteContactName",
+        a."SiteContactPhone",
+        a."RemoteTool",
+        a."RemoteID",
+        (a."RemotePassword" IS NOT NULL AND a."RemotePassword" <> '') AS "HasRemotePassword"
+      FROM "Tickets" t
+      LEFT JOIN "AMCCustomers" a
+        ON a."CustomerID" = t."AmcCustomerId"
+      WHERE t."AssignedTo" = $1
+      ORDER BY t."CreatedTime"::timestamptz AT TIME ZONE 'Asia/Kolkata' DESC`,
       [req.user.email]
     );
 
@@ -332,26 +338,33 @@ router.get("/escalated", verifyToken, async (req, res) => {
     }
 
     const result = await pool.query(
-      `SELECT 
-      "TicketID",
-      "TicketNo",
-      "CustomerName",
-      "SiteName",
-      "IssueDetails",
-      "AssignedTo",
-      "Status",
-      "Remark",
-      "CreatedTime"::timestamptz AT TIME ZONE 'Asia/Kolkata' AS "CreatedTime",
-      "ResolvedTime"::timestamptz AT TIME ZONE 'Asia/Kolkata' AS "ResolvedTime",
-      "Escalated",
-      "InProgress_Date"::timestamptz AT TIME ZONE 'Asia/Kolkata' AS "InProgress_Date",
-      "Pending_Date"::timestamptz AT TIME ZONE 'Asia/Kolkata' AS "Pending_Date",
-      "Resolved_Date"::timestamptz AT TIME ZONE 'Asia/Kolkata' AS "Resolved_Date",
-      "priority",
-      "AmcCustomerId",
-      "TicketType"
-    FROM "Tickets"
-    ORDER BY "CreatedTime"::timestamptz AT TIME ZONE 'Asia/Kolkata' DESC`
+      `SELECT
+        t."TicketID",
+        t."TicketNo",
+        t."CustomerName",
+        t."SiteName",
+        t."IssueDetails",
+        t."AssignedTo",
+        t."Status",
+        t."Remark",
+        t."CreatedTime"::timestamptz AT TIME ZONE 'Asia/Kolkata' AS "CreatedTime",
+        t."ResolvedTime"::timestamptz AT TIME ZONE 'Asia/Kolkata' AS "ResolvedTime",
+        t."Escalated",
+        t."InProgress_Date"::timestamptz AT TIME ZONE 'Asia/Kolkata' AS "InProgress_Date",
+        t."Pending_Date"::timestamptz AT TIME ZONE 'Asia/Kolkata' AS "Pending_Date",
+        t."Resolved_Date"::timestamptz AT TIME ZONE 'Asia/Kolkata' AS "Resolved_Date",
+        t."priority",
+        t."AmcCustomerId",
+        t."TicketType",
+        a."SiteContactName",
+        a."SiteContactPhone",
+        a."RemoteTool",
+        a."RemoteID",
+        (a."RemotePassword" IS NOT NULL AND a."RemotePassword" <> '') AS "HasRemotePassword"
+      FROM "Tickets" t
+      LEFT JOIN "AMCCustomers" a
+        ON a."CustomerID" = t."AmcCustomerId"
+      ORDER BY t."CreatedTime"::timestamptz AT TIME ZONE 'Asia/Kolkata' DESC`
     );
 
     res.json(result.rows);
@@ -368,6 +381,26 @@ const { Parser } = require('json2csv');
 
 router.get("/download", verifyToken, async (req, res) => {
   try {
+    if (req.user.role !== "Manager") {
+      return res.status(403).json({ msg: "Only Managers can download ticket reports" });
+    }
+
+    const { startDate, endDate } = req.query;
+    const validDate = value => {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(value || "")) return false;
+      const date = new Date(`${value}T00:00:00Z`);
+      return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
+    };
+    if ((startDate && !endDate) || (!startDate && endDate)) {
+      return res.status(400).json({ msg: "Both start date and end date are required" });
+    }
+    if (startDate && (!validDate(startDate) || !validDate(endDate))) {
+      return res.status(400).json({ msg: "Dates must use a valid YYYY-MM-DD format" });
+    }
+    if (startDate && startDate > endDate) {
+      return res.status(400).json({ msg: "Start date cannot be after end date" });
+    }
+
     let query = `
       SELECT 
         "TicketID",
@@ -394,16 +427,23 @@ router.get("/download", verifyToken, async (req, res) => {
     const params = [];
     let paramIndex = 1;
 
-    if (req.query.startDate && req.query.endDate) {
-      query += ` AND "CreatedTime" BETWEEN $${paramIndex} AND $${paramIndex + 1}`;
-      params.push(req.query.startDate + " 00:00:00");
-      params.push(req.query.endDate + " 23:59:59");
+    if (startDate && endDate) {
+      query += ` AND ("CreatedTime"::timestamptz AT TIME ZONE 'Asia/Kolkata')::date
+                     BETWEEN $${paramIndex}::date AND $${paramIndex + 1}::date`;
+      params.push(startDate);
+      params.push(endDate);
       paramIndex += 2;
     }
 
+    if (req.query.customer && typeof req.query.customer !== "string") {
+      return res.status(400).json({ msg: "Customer filter must be text" });
+    }
+    if (typeof req.query.customer === "string" && req.query.customer.trim().length > 255) {
+      return res.status(400).json({ msg: "Customer filter is too long" });
+    }
     if (req.query.customer && req.query.customer !== '') {
-      query += ` AND "CustomerName" ILIKE $${paramIndex}`;
-      params.push(`%${req.query.customer}%`);
+      query += ` AND lower(btrim("CustomerName")) = lower($${paramIndex})`;
+      params.push(req.query.customer.trim());
       paramIndex++;
     }
 
@@ -412,13 +452,13 @@ router.get("/download", verifyToken, async (req, res) => {
     const result = await pool.query(query, params);
 
     if (!result.rows || result.rows.length === 0) {
-      return res.status(200).send("No data available");
+      return res.status(404).json({ msg: "No tickets found for the selected report filters" });
     }
 
     const json2csvParser = new Parser();
     const csv = json2csvParser.parse(result.rows);
 
-    res.header('Content-Type', 'text/csv');
+    res.header('Content-Type', 'text/csv; charset=utf-8');
     res.attachment(`SAI_Tickets_${req.query.startDate || 'all'}_to_${req.query.endDate || 'all'}.csv`);
     return res.send(csv);
 
@@ -502,6 +542,10 @@ router.put("/reassign/:id", verifyToken, async (req, res) => {
 // ✅ GET Engineers List
 router.get("/users/engineers", verifyToken, async (req, res) => {
   try {
+    if (!["Dispatcher", "Manager"].includes(req.user.role)) {
+      return res.status(403).json({ msg: "Access denied" });
+    }
+
     const result = await pool.query(`
       SELECT "Email" 
       FROM public."Users" 
@@ -523,18 +567,18 @@ router.post("/manager-notify", verifyToken, async (req, res) => {
       return res.status(403).json({ msg: "Only Manager allowed" });
     }
 
-    const { customerName, siteName, issueDetails, priority } = req.body;
-
-    if (!customerName || !siteName || !issueDetails) {
-      return res.status(400).json({ msg: "All fields required" });
+    const { data, errors } = validateManagerNotification(req.body);
+    if (errors.length) {
+      return res.status(400).json({ msg: errors[0], errors });
     }
+    const { customerName, siteName, issueDetails, priority } = data;
 
     // 1️⃣ Save notification in DB
     await pool.query(
       `INSERT INTO "ManagerNotifications"
        ("CustomerName", "SiteName", "IssueDetails", "Priority", "SentBy")
        VALUES ($1, $2, $3, $4, $5)`,
-      [customerName, siteName, issueDetails, priority || 'Medium', req.user.email]
+      [customerName, siteName, issueDetails, priority, req.user.email]
     );
 
     // 2️⃣ SEND WHATSAPP TO DISPATCHER 🔥
@@ -553,7 +597,7 @@ router.post("/manager-notify", verifyToken, async (req, res) => {
 👔 From: ${req.user.email.split('@')[0]}
 🏢 Customer: ${customerName}
 📍 Site: ${siteName}
-⚠️ Priority: ${priority || 'Medium'}
+⚠️ Priority: ${priority}
 
 📋 Issue:
 ${issueDetails}
@@ -572,7 +616,7 @@ ${issueDetails}
       console.error("❌ WhatsApp error:", waErr.message);
     }
 
-    res.json({ msg: "✅ Notification sent to Dispatcher!" });
+    res.status(201).json({ msg: "✅ Notification sent to Dispatcher!" });
 
   } catch (err) {
     console.error(err);
@@ -606,10 +650,14 @@ router.put("/manager-notify/:id/done", verifyToken, async (req, res) => {
       return res.status(403).json({ msg: "Only Dispatcher allowed" });
     }
 
-    await pool.query(
+    const result = await pool.query(
       `UPDATE "ManagerNotifications" SET "Status" = 'done' WHERE "NotificationID" = $1`,
       [req.params.id]
     );
+
+    if (result.rowCount === 0) {
+      return res.status(404).json({ msg: "Notification not found" });
+    }
 
     res.json({ msg: "✅ Marked as done" });
   } catch (err) {
