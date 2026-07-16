@@ -15,6 +15,9 @@ module.exports = function verifyToken(req, res, next) {
 
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    if (decoded.purpose) {
+      return res.status(401).json({ msg: "This token cannot access protected APIs" });
+    }
     req.user = decoded;
     next();
   } catch (err) {

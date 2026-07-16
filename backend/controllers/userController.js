@@ -1,0 +1,74 @@
+const bcrypt = require("bcrypt");
+const { validateNewUser } = require("../validation/userValidation");
+
+function isDispatcher(req) {
+  return req.user?.role === "Dispatcher";
+}
+
+function createUserController({ pool, passwordHasher = bcrypt }) {
+  async function getUsers(req, res) {
+    if (!isDispatcher(req)) {
+      return res.status(403).json({ msg: "Only Dispatchers allowed" });
+    }
+
+    try {
+      const result = await pool.query(
+        `SELECT "UserID", "Role", "Email", "Phone", "IsFirstLogin"
+         FROM "Users"
+         ORDER BY "Role", lower("Email")`
+      );
+      res.set("Cache-Control", "no-store");
+      return res.json(result.rows);
+    } catch (err) {
+      console.error("Load users error:", err);
+      return res.status(500).json({ msg: "Failed to load users" });
+    }
+  }
+
+  async function createUser(req, res) {
+    if (!isDispatcher(req)) {
+      return res.status(403).json({ msg: "Only Dispatchers allowed" });
+    }
+
+    const { data, errors } = validateNewUser(req.body);
+    if (errors.length) {
+      return res.status(400).json({ msg: errors[0], errors });
+    }
+
+    try {
+      const duplicate = await pool.query(
+        `SELECT "UserID"
+         FROM "Users"
+         WHERE lower(btrim("Email")) = lower($1)
+         LIMIT 1`,
+        [data.email]
+      );
+      if (duplicate.rows.length) {
+        return res.status(409).json({ msg: "A user with this email already exists" });
+      }
+
+      const passwordHash = await passwordHasher.hash(data.temporaryPassword, 10);
+      const result = await pool.query(
+        `INSERT INTO "Users" ("Role", "Email", "Password", "IsFirstLogin", "Phone")
+         VALUES ($1, $2, $3, true, $4)
+         RETURNING "UserID", "Role", "Email", "Phone", "IsFirstLogin"`,
+        [data.role, data.email, passwordHash, data.phone]
+      );
+
+      return res.status(201).json({
+        msg: "User created successfully",
+        user: result.rows[0]
+      });
+    } catch (err) {
+      if (err.code === "23505") {
+        return res.status(409).json({ msg: "A user with this email already exists" });
+      }
+      console.error("Create user error:", err);
+      return res.status(500).json({ msg: "Failed to create user" });
+    }
+  }
+
+  return { createUser, getUsers };
+}
+
+module.exports = { createUserController };

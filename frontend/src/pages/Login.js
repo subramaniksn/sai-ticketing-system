@@ -21,7 +21,7 @@ export default function Login() {
       
       // 🔥 FIRST TIME LOGIN CHECK
       if (res.data.firstTimeLogin) {
-        setUserData(res.data.user);
+        setUserData({ ...res.data.user, firstLoginToken: res.data.firstLoginToken });
         setShowPasswordModal(true);
         setLoading(false);
         return;
@@ -54,16 +54,15 @@ export default function Login() {
 
   // 🔥 HANDLE PASSWORD CHANGE
   const handlePasswordChange = async () => {
-    if (newPassword.length < 6) {
-      alert("Password must be at least 6 characters");
+    if (newPassword.length < 8) {
+      alert("Password must be at least 8 characters");
       return;
     }
 
     try {
       setLoading(true);
       const res = await axios.post(`${process.env.REACT_APP_API_URL || 'https://ticket.saiautomation.co.in'}/api/auth/set-password`, {
-        userId: userData.userId,
-        email: userData.email,
+        firstLoginToken: userData.firstLoginToken,
         newPassword
       });
 
@@ -177,20 +176,20 @@ export default function Login() {
               <label style={styles.label}>New Password <span style={{color: '#ef4444'}}>*</span></label>
               <input
                 type="password"
-                placeholder="Enter new password (minimum 6 characters)"
+                placeholder="Enter new password (minimum 8 characters)"
                 value={newPassword}
                 onChange={(e) => setNewPassword(e.target.value)}
                 style={{
                   ...styles.input,
-                  borderColor: newPassword.length > 0 && newPassword.length < 6 ? '#f87171' : '#d1d5db',
+                  borderColor: newPassword.length > 0 && newPassword.length < 8 ? '#f87171' : '#d1d5db',
                   borderWidth: newPassword.length > 0 ? '2px' : '1px'
                 }}
                 disabled={loading}
               />
-              {newPassword.length > 0 && newPassword.length < 6 && (
-                <small style={styles.errorText}>Password must be at least 6 characters</small>
+              {newPassword.length > 0 && newPassword.length < 8 && (
+                <small style={styles.errorText}>Password must be at least 8 characters</small>
               )}
-              {newPassword.length >= 6 && (
+              {newPassword.length >= 8 && (
                 <small style={styles.successText}>✓ Password meets requirements</small>
               )}
             </div>
@@ -198,13 +197,13 @@ export default function Login() {
             <div style={styles.modalButtons}>
               <button
                 onClick={handlePasswordChange}
-                disabled={newPassword.length < 6 || loading}
+                disabled={newPassword.length < 8 || loading}
                 style={{
                   ...styles.loginButton,
                   background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
                   flex: 2,
-                  opacity: (newPassword.length < 6 || loading) ? 0.6 : 1,
-                  cursor: (newPassword.length < 6 || loading) ? 'not-allowed' : 'pointer'
+                  opacity: (newPassword.length < 8 || loading) ? 0.6 : 1,
+                  cursor: (newPassword.length < 8 || loading) ? 'not-allowed' : 'pointer'
                 }}
               >
                 {loading ? "⏳ Updating..." : "✅ Set New Password"}

@@ -405,6 +405,13 @@ const emptyAmcForm = () => ({
   remotePassword: ""
 });
 
+const emptyUserForm = () => ({
+  role: "Engineer",
+  email: "",
+  phone: "",
+  temporaryPassword: ""
+});
+
 export default function DispatcherDashboard() {
   const [selectedTicket, setSelectedTicket] = useState(null);
   const [tickets, setTickets] = useState([]);
@@ -419,6 +426,10 @@ export default function DispatcherDashboard() {
   const [unreadCount, setUnreadCount] = useState(0);  
   const [amcCustomers, setAmcCustomers] = useState([]);
   const [amcLoading, setAmcLoading] = useState(false);
+  const [users, setUsers] = useState([]);
+  const [showUserForm, setShowUserForm] = useState(false);
+  const [creatingUser, setCreatingUser] = useState(false);
+  const [userForm, setUserForm] = useState(emptyUserForm);
 
   // 🔥 NEW: Add AMC Customer form state
   const [showAmcForm, setShowAmcForm] = useState(false);
@@ -431,16 +442,10 @@ export default function DispatcherDashboard() {
   const [remotePassword, setRemotePassword] = useState("");
   const [remotePasswordLoading, setRemotePasswordLoading] = useState(false);
 
-  const engineers = [
-    "sarumathy@saiautomation.co.in",
-    "vishva@saiautomation.co.in",
-    "jeeva@saiautomation.co.in",
-    "lakshman@saiautomation.co.in",
-    "sujith@saiautomation.co.in",
-    "mani@saiautomation.co.in",
-    "Jayasankar@saiautomation.co.in",
-    "tinu@saiautomation.co.in"
-  ];
+  const engineers = useMemo(
+    () => users.filter((user) => user.Role === "Engineer").map((user) => user.Email),
+    [users]
+  );
 
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
 
@@ -449,11 +454,31 @@ export default function DispatcherDashboard() {
     siteName: "",
     issueDetails: "",
     priority: "Medium",
-    assignedTo: engineers[0],
+    assignedTo: "",
     ticketType: "NON_AMC",        // 🔥 NEW
     isAmcCustomer: false,
     amcCustomerId: ""
   });
+
+  const loadUsers = useCallback(async () => {
+    try {
+      const res = await API.get("/auth/users");
+      const loadedUsers = Array.isArray(res.data) ? res.data : [];
+      const engineerEmails = loadedUsers
+        .filter((user) => user.Role === "Engineer")
+        .map((user) => user.Email);
+      setUsers(loadedUsers);
+      setForm((current) => ({
+        ...current,
+        assignedTo: engineerEmails.includes(current.assignedTo)
+          ? current.assignedTo
+          : (engineerEmails[0] || "")
+      }));
+    } catch (err) {
+      console.error("Users load error:", err);
+      setUsers([]);
+    }
+  }, []);
 
   const loadAmcCustomers = useCallback(async () => {
     try {
@@ -517,8 +542,9 @@ const loadManagerNotifications = async () => {
   useEffect(() => {
     loadAmcCustomers();
     loadTickets();
+    loadUsers();
     loadManagerNotifications();
-  }, [loadAmcCustomers, loadTickets]);
+  }, [loadAmcCustomers, loadTickets, loadUsers]);
   // 🔥 AUTO-FILL Customer/Site when AMC site selected
 // 🔥 AUTO-FILL Customer/Site when AMC site selected
 useEffect(() => {
@@ -578,6 +604,51 @@ useEffect(() => {
       alert("❌ " + (err.response?.data?.msg || "Failed to load remote password"));
     } finally {
       setRemotePasswordLoading(false);
+    }
+  };
+
+  const handleUserInputChange = (e) => {
+    setUserForm((current) => ({ ...current, [e.target.name]: e.target.value }));
+  };
+
+  const closeUserForm = () => {
+    setUserForm(emptyUserForm());
+    setShowUserForm(false);
+  };
+
+  const createUser = async () => {
+    const email = userForm.email.trim().toLowerCase();
+    const phone = userForm.phone.trim();
+    const phoneDigits = phone.replace(/\D/g, "");
+
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      alert("❌ Enter a valid email address");
+      return;
+    }
+    if (phoneDigits.length < 10 || phoneDigits.length > 15 || !/^\+?[\d\s().-]+$/.test(phone)) {
+      alert("❌ Phone must contain 10 to 15 digits");
+      return;
+    }
+    if (userForm.temporaryPassword.length < 8 || userForm.temporaryPassword.length > 72) {
+      alert("❌ Temporary Password must contain 8 to 72 characters");
+      return;
+    }
+
+    try {
+      setCreatingUser(true);
+      await API.post("/auth/users", {
+        ...userForm,
+        email,
+        phone
+      });
+      alert("✅ User created successfully. The user must change the temporary password during first login.");
+      closeUserForm();
+      await loadUsers();
+    } catch (err) {
+      console.error("Create user error:", err);
+      alert("❌ Failed to create user: " + (err.response?.data?.msg || "Please try again"));
+    } finally {
+      setCreatingUser(false);
     }
   };
 
@@ -659,6 +730,11 @@ useEffect(() => {
     );
     if (!customer) {
       resetAmcEditor();
+      return;
+    }
+
+    if (!form.assignedTo) {
+      alert("❌ Please add or select an Engineer before creating a ticket");
       return;
     }
 
@@ -995,14 +1071,137 @@ const td = {
               </div>
             </div>
           </div>
-          <button 
-            onClick={() => setShowLogoutConfirm(true)}
-            style={styles.logoutButton}
-          >
-            🚪 Logout
-          </button>
+          <div style={{ display: "flex", gap: "10px", alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end" }}>
+            <button
+              onClick={() => setShowUserForm((visible) => !visible)}
+              style={{
+                padding: "10px 18px",
+                border: "none",
+                borderRadius: "9px",
+                background: showUserForm ? "#64748b" : "#1976d2",
+                color: "white",
+                fontWeight: "700",
+                cursor: "pointer"
+              }}
+            >
+              {showUserForm ? "✕ Close User Form" : "➕ Add User"}
+            </button>
+            <button
+              onClick={() => setShowLogoutConfirm(true)}
+              style={styles.logoutButton}
+            >
+              🚪 Logout
+            </button>
+          </div>
         </div>
       </div>
+
+      {showUserForm && (
+        <div style={styles.formSection}>
+          <div style={styles.formCard}>
+            <h3 style={styles.sectionTitle}>👤 Create New User</h3>
+            <p style={{ margin: "-8px 0 20px", color: "#64748b", fontSize: "14px" }}>
+              The temporary password is securely stored. The user must replace it during first login.
+            </p>
+
+            <div style={styles.formRowGrid}>
+              <div>
+                <label style={styles.label}>Role *</label>
+                <select
+                  name="role"
+                  value={userForm.role}
+                  onChange={handleUserInputChange}
+                  disabled={creatingUser}
+                  style={styles.selectFull}
+                >
+                  <option value="Engineer">Engineer</option>
+                  <option value="Dispatcher">Dispatcher</option>
+                  <option value="Manager">Manager</option>
+                </select>
+              </div>
+              <div>
+                <label style={styles.label}>Email *</label>
+                <input
+                  name="email"
+                  type="email"
+                  placeholder="user@saiautomation.co.in"
+                  value={userForm.email}
+                  onChange={handleUserInputChange}
+                  disabled={creatingUser}
+                  maxLength={255}
+                  autoComplete="off"
+                  style={styles.input}
+                />
+              </div>
+            </div>
+
+            <div style={styles.formRowGrid}>
+              <div>
+                <label style={styles.label}>Phone *</label>
+                <input
+                  name="phone"
+                  type="tel"
+                  placeholder="+91 98765 43210"
+                  value={userForm.phone}
+                  onChange={handleUserInputChange}
+                  disabled={creatingUser}
+                  inputMode="tel"
+                  maxLength={20}
+                  autoComplete="off"
+                  style={styles.input}
+                />
+              </div>
+              <div>
+                <label style={styles.label}>Temporary Password *</label>
+                <input
+                  name="temporaryPassword"
+                  type="password"
+                  placeholder="8 to 72 characters"
+                  value={userForm.temporaryPassword}
+                  onChange={handleUserInputChange}
+                  disabled={creatingUser}
+                  minLength={8}
+                  maxLength={72}
+                  autoComplete="new-password"
+                  style={styles.input}
+                />
+              </div>
+            </div>
+
+            <div style={{ display: "flex", gap: "10px" }}>
+              <button
+                onClick={createUser}
+                disabled={creatingUser}
+                style={{
+                  ...styles.createButton,
+                  width: "auto",
+                  flex: 1,
+                  opacity: creatingUser ? 0.7 : 1,
+                  cursor: creatingUser ? "not-allowed" : "pointer"
+                }}
+              >
+                {creatingUser ? "Creating User..." : "✅ Create User"}
+              </button>
+              <button
+                type="button"
+                onClick={closeUserForm}
+                disabled={creatingUser}
+                style={{
+                  padding: "12px 20px",
+                  border: "none",
+                  borderRadius: "10px",
+                  background: "#64748b",
+                  color: "white",
+                  fontWeight: "700",
+                  cursor: creatingUser ? "not-allowed" : "pointer"
+                }}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
 	{/* 🔔 MANAGER NOTIFICATIONS BELL */}
 <div style={{position:'relative', display:'inline-block', margin:'15px'}}>

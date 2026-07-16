@@ -4,7 +4,8 @@
   "main": "server.js",
   "scripts": {
     "test": "node --test tests",
-    "setup:amc-security": "node scripts/setupAmcSecurity.js"
+    "setup:amc-security": "node scripts/setupAmcSecurity.js",
+    "setup:user-security": "node scripts/setupUserSecurity.js"
   },
   "dependencies": {
     "@whiskeysockets/baileys": "^7.0.0-rc13",
