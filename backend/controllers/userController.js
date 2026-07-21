@@ -63,7 +63,17 @@ function createUserController({ pool, passwordHasher = bcrypt }) {
       if (err.code === "23505") {
         return res.status(409).json({ msg: "A user with this email already exists" });
       }
-      console.error("Create user error:", err);
+      console.error("Create user error:", {
+        code: err.code,
+        message: err.message,
+        column: err.column,
+        constraint: err.constraint
+      });
+      if (err.code === "23502" && err.column === "UserID") {
+        return res.status(500).json({
+          msg: "User database setup is incomplete. Run npm run setup:user-security."
+        });
+      }
       return res.status(500).json({ msg: "Failed to create user" });
     }
   }

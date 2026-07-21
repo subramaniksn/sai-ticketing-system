@@ -20,13 +20,34 @@ async function setupUserSecurity() {
     }
 
     await client.query(
+      `CREATE SEQUENCE IF NOT EXISTS "Users_UserID_seq"`
+    );
+    await client.query(
+      `SELECT setval(
+         '"Users_UserID_seq"'::regclass,
+         COALESCE(MAX("UserID"), 1),
+         MAX("UserID") IS NOT NULL
+       )
+       FROM "Users"`
+    );
+    await client.query(
+      `ALTER TABLE "Users"
+       ALTER COLUMN "UserID"
+       SET DEFAULT nextval('"Users_UserID_seq"'::regclass)`
+    );
+    await client.query(
+      `ALTER SEQUENCE "Users_UserID_seq"
+       OWNED BY "Users"."UserID"`
+    );
+
+    await client.query(
       `CREATE UNIQUE INDEX IF NOT EXISTS "UX_Users_Email_CI"
        ON "Users" (lower(btrim("Email")))`
     );
 
     await client.query("COMMIT");
     transactionStarted = false;
-    console.log("User security setup complete. Case-insensitive email uniqueness enabled.");
+    console.log("User security setup complete. User IDs and case-insensitive email uniqueness enabled.");
   } catch (err) {
     if (transactionStarted) await client.query("ROLLBACK");
     throw err;

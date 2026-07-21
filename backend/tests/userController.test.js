@@ -96,3 +96,25 @@ test("user list never returns password hashes", async () => {
   assert.equal(res.headers["Cache-Control"], "no-store");
   assert.equal(Object.hasOwn(res.body[0], "Password"), false);
 });
+
+test("reports an incomplete UserID sequence without exposing database row details", async () => {
+  let callCount = 0;
+  const pool = {
+    query: async () => {
+      callCount += 1;
+      if (callCount === 1) return { rows: [] };
+      const error = new Error("null value violates not-null constraint");
+      error.code = "23502";
+      error.column = "UserID";
+      throw error;
+    }
+  };
+  const passwordHasher = { hash: async () => "hashed-password" };
+  const controller = createUserController({ pool, passwordHasher });
+  const res = createResponse();
+
+  await controller.createUser({ user: { role: "Dispatcher" }, body: validBody }, res);
+
+  assert.equal(res.statusCode, 500);
+  assert.match(res.body.msg, /setup:user-security/);
+});
