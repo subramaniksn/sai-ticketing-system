@@ -430,6 +430,9 @@ export default function DispatcherDashboard() {
   const [showUserForm, setShowUserForm] = useState(false);
   const [creatingUser, setCreatingUser] = useState(false);
   const [userForm, setUserForm] = useState(emptyUserForm);
+  const [passwordResetUser, setPasswordResetUser] = useState(null);
+  const [resetPasswordForm, setResetPasswordForm] = useState({ temporaryPassword: "", confirmPassword: "" });
+  const [resettingPassword, setResettingPassword] = useState(false);
 
   // 🔥 NEW: Add AMC Customer form state
   const [showAmcForm, setShowAmcForm] = useState(false);
@@ -613,7 +616,45 @@ useEffect(() => {
 
   const closeUserForm = () => {
     setUserForm(emptyUserForm());
+    setPasswordResetUser(null);
+    setResetPasswordForm({ temporaryPassword: "", confirmPassword: "" });
     setShowUserForm(false);
+  };
+
+  const openPasswordReset = (user) => {
+    setPasswordResetUser(user);
+    setResetPasswordForm({ temporaryPassword: "", confirmPassword: "" });
+  };
+
+  const closePasswordReset = () => {
+    setPasswordResetUser(null);
+    setResetPasswordForm({ temporaryPassword: "", confirmPassword: "" });
+  };
+
+  const resetUserPassword = async () => {
+    if (!passwordResetUser) return;
+    const { temporaryPassword, confirmPassword } = resetPasswordForm;
+    if (temporaryPassword.length < 8 || temporaryPassword.length > 72) {
+      alert("❌ Temporary Password must contain 8 to 72 characters");
+      return;
+    }
+    if (temporaryPassword !== confirmPassword) {
+      alert("❌ Temporary Password and Confirm Password do not match");
+      return;
+    }
+
+    try {
+      setResettingPassword(true);
+      await API.put(`/auth/users/${passwordResetUser.UserID}/reset-password`, { temporaryPassword });
+      alert("✅ Temporary password reset successfully. Give it privately to the user; they must change it at next login.");
+      closePasswordReset();
+      await loadUsers();
+    } catch (err) {
+      console.error("Reset user password error:", err);
+      alert("❌ Failed to reset password: " + (err.response?.data?.msg || "Please try again"));
+    } finally {
+      setResettingPassword(false);
+    }
   };
 
   const createUser = async () => {
@@ -1073,7 +1114,7 @@ const td = {
           </div>
           <div style={{ display: "flex", gap: "10px", alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end" }}>
             <button
-              onClick={() => setShowUserForm((visible) => !visible)}
+              onClick={showUserForm ? closeUserForm : () => setShowUserForm(true)}
               style={{
                 padding: "10px 18px",
                 border: "none",
@@ -1084,7 +1125,7 @@ const td = {
                 cursor: "pointer"
               }}
             >
-              {showUserForm ? "✕ Close User Form" : "➕ Add User"}
+              {showUserForm ? "✕ Close User Management" : "👥 Manage Users"}
             </button>
             <button
               onClick={() => setShowLogoutConfirm(true)}
@@ -1099,7 +1140,141 @@ const td = {
       {showUserForm && (
         <div style={styles.formSection}>
           <div style={styles.formCard}>
-            <h3 style={styles.sectionTitle}>👤 Create New User</h3>
+            <h3 style={styles.sectionTitle}>👥 User Management ({users.length})</h3>
+
+            <div style={{ overflowX: "auto", marginBottom: "22px" }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", minWidth: "720px" }}>
+                <thead>
+                  <tr style={{ background: "#eff6ff", color: "#1e3a5f" }}>
+                    <th style={{ padding: "11px", textAlign: "left" }}>Role</th>
+                    <th style={{ padding: "11px", textAlign: "left" }}>Email</th>
+                    <th style={{ padding: "11px", textAlign: "left" }}>Phone</th>
+                    <th style={{ padding: "11px", textAlign: "left" }}>Password Status</th>
+                    <th style={{ padding: "11px", textAlign: "left" }}>Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {users.map((user) => (
+                    <tr key={user.UserID} style={{ borderBottom: "1px solid #e5e7eb" }}>
+                      <td style={{ padding: "11px" }}>{user.Role}</td>
+                      <td style={{ padding: "11px", overflowWrap: "anywhere" }}>{user.Email}</td>
+                      <td style={{ padding: "11px" }}>{user.Phone || "—"}</td>
+                      <td style={{ padding: "11px" }}>
+                        <span style={{
+                          display: "inline-block",
+                          padding: "5px 9px",
+                          borderRadius: "999px",
+                          background: user.IsFirstLogin ? "#fff7ed" : "#ecfdf5",
+                          color: user.IsFirstLogin ? "#c2410c" : "#047857",
+                          fontSize: "12px",
+                          fontWeight: "700"
+                        }}>
+                          {user.IsFirstLogin ? "Change required" : "Active"}
+                        </span>
+                      </td>
+                      <td style={{ padding: "11px" }}>
+                        <button
+                          type="button"
+                          onClick={() => openPasswordReset(user)}
+                          disabled={creatingUser || resettingPassword}
+                          style={{
+                            padding: "8px 12px",
+                            border: "none",
+                            borderRadius: "8px",
+                            background: "#dc2626",
+                            color: "white",
+                            fontWeight: "700",
+                            cursor: creatingUser || resettingPassword ? "not-allowed" : "pointer"
+                          }}
+                        >
+                          🔑 Reset Password
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {passwordResetUser && (
+              <div style={{
+                marginBottom: "24px",
+                padding: "18px",
+                border: "2px solid #fecaca",
+                borderRadius: "12px",
+                background: "#fff7f7"
+              }}>
+                <h4 style={{ margin: "0 0 8px", color: "#991b1b" }}>🔑 Reset User Password</h4>
+                <p style={{ margin: "0 0 16px", color: "#475569" }}>
+                  Set a temporary password for <strong>{passwordResetUser.Email}</strong>. The user must replace it at next login.
+                </p>
+                <div style={styles.formRowGrid}>
+                  <div>
+                    <label style={styles.label}>Temporary Password *</label>
+                    <input
+                      type="password"
+                      value={resetPasswordForm.temporaryPassword}
+                      onChange={(e) => setResetPasswordForm((current) => ({ ...current, temporaryPassword: e.target.value }))}
+                      disabled={resettingPassword}
+                      minLength={8}
+                      maxLength={72}
+                      autoComplete="new-password"
+                      style={styles.input}
+                    />
+                  </div>
+                  <div>
+                    <label style={styles.label}>Confirm Temporary Password *</label>
+                    <input
+                      type="password"
+                      value={resetPasswordForm.confirmPassword}
+                      onChange={(e) => setResetPasswordForm((current) => ({ ...current, confirmPassword: e.target.value }))}
+                      disabled={resettingPassword}
+                      minLength={8}
+                      maxLength={72}
+                      autoComplete="new-password"
+                      style={styles.input}
+                    />
+                  </div>
+                </div>
+                <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
+                  <button
+                    type="button"
+                    onClick={resetUserPassword}
+                    disabled={resettingPassword}
+                    style={{
+                      padding: "11px 18px",
+                      border: "none",
+                      borderRadius: "9px",
+                      background: "#dc2626",
+                      color: "white",
+                      fontWeight: "700",
+                      cursor: resettingPassword ? "not-allowed" : "pointer"
+                    }}
+                  >
+                    {resettingPassword ? "Resetting..." : "✅ Set Temporary Password"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={closePasswordReset}
+                    disabled={resettingPassword}
+                    style={{
+                      padding: "11px 18px",
+                      border: "none",
+                      borderRadius: "9px",
+                      background: "#64748b",
+                      color: "white",
+                      fontWeight: "700",
+                      cursor: resettingPassword ? "not-allowed" : "pointer"
+                    }}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
+
+            <div style={{ borderTop: "1px solid #e5e7eb", paddingTop: "22px" }}>
+              <h3 style={{ ...styles.sectionTitle, marginTop: 0 }}>➕ Create New User</h3>
             <p style={{ margin: "-8px 0 20px", color: "#64748b", fontSize: "14px" }}>
               The temporary password is securely stored. The user must replace it during first login.
             </p>
@@ -1198,6 +1373,7 @@ const td = {
               >
                 Cancel
               </button>
+            </div>
             </div>
           </div>
         </div>

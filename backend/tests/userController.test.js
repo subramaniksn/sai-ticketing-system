@@ -118,3 +118,74 @@ test("reports an incomplete UserID sequence without exposing database row detail
   assert.equal(res.statusCode, 500);
   assert.match(res.body.msg, /setup:user-security/);
 });
+
+test("rejects password resets by non-dispatchers", async () => {
+  const pool = { query: async () => assert.fail("database should not be called") };
+  const controller = createUserController({ pool });
+  const res = createResponse();
+
+  await controller.resetUserPassword(
+    { user: { role: "Engineer" }, params: { userId: "7" }, body: { temporaryPassword: "new-temporary-password" } },
+    res
+  );
+
+  assert.equal(res.statusCode, 403);
+});
+
+test("rejects invalid password reset input before querying the database", async () => {
+  const pool = { query: async () => assert.fail("database should not be called") };
+  const controller = createUserController({ pool });
+  const res = createResponse();
+
+  await controller.resetUserPassword(
+    { user: { role: "Dispatcher" }, params: { userId: "bad" }, body: { temporaryPassword: "short" } },
+    res
+  );
+
+  assert.equal(res.statusCode, 400);
+});
+
+test("resets a user with a hashed temporary password and forces first login", async () => {
+  const calls = [];
+  const pool = {
+    query: async (sql, params) => {
+      calls.push({ sql, params });
+      return { rows: [{ UserID: 7, Role: "Engineer", Email: validBody.email, IsFirstLogin: true }] };
+    }
+  };
+  const passwordHasher = { hash: async (password, rounds) => `hashed:${rounds}:${password}` };
+  const controller = createUserController({ pool, passwordHasher });
+  const res = createResponse();
+
+  await controller.resetUserPassword(
+    {
+      user: { role: "Dispatcher" },
+      params: { userId: "7" },
+      body: { temporaryPassword: "new-temporary-password" }
+    },
+    res
+  );
+
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.body.user.IsFirstLogin, true);
+  assert.deepEqual(calls[0].params, ["hashed:10:new-temporary-password", 7]);
+  assert.doesNotMatch(calls[0].sql, /RETURNING[\s\S]*"Password"/);
+});
+
+test("returns not found when resetting a missing user", async () => {
+  const pool = { query: async () => ({ rows: [] }) };
+  const passwordHasher = { hash: async () => "hashed-password" };
+  const controller = createUserController({ pool, passwordHasher });
+  const res = createResponse();
+
+  await controller.resetUserPassword(
+    {
+      user: { role: "Dispatcher" },
+      params: { userId: "999" },
+      body: { temporaryPassword: "new-temporary-password" }
+    },
+    res
+  );
+
+  assert.equal(res.statusCode, 404);
+});

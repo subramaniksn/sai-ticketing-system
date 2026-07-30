@@ -259,7 +259,9 @@ export default function EngineerDashboard() {
       const res = await API.get("/tickets/mytickets", {
         headers: { Authorization: `Bearer ${token}` }
       });
-      setTickets(res.data || []);
+      const loadedTickets = res.data || [];
+      setTickets(loadedTickets);
+      return loadedTickets;
     } catch (err) {
       if (err.response?.status === 401 || err.message.includes("token")) {
         localStorage.clear();
@@ -276,10 +278,25 @@ export default function EngineerDashboard() {
     try {
       setProcessing(prev => ({ ...prev, [ticketId]: true }));
       const token = localStorage.getItem("token");
-      await API.put(`/tickets/update-status/${ticketId}`, { status }, {
+      const res = await API.put(`/tickets/update-status/${ticketId}`, { status }, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      loadTickets();
+      const updatedTicket = res.data?.ticket;
+
+      if (updatedTicket) {
+        setTickets(prev => prev.map(ticket =>
+          ticket.TicketID === updatedTicket.TicketID
+            ? { ...ticket, ...updatedTicket }
+            : ticket
+        ));
+        setSelectedTicket(prev =>
+          prev?.TicketID === updatedTicket.TicketID
+            ? { ...prev, ...updatedTicket }
+            : prev
+        );
+      }
+
+      await loadTickets();
     } catch (err) {
       alert("Error: " + (err.response?.data?.msg || "Failed to update status"));
     } finally {

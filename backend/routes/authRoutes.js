@@ -6,7 +6,7 @@ const verifyToken = require("../middleware/authMiddleware");
 const { createUserController } = require("../controllers/userController");
 
 const router = express.Router();
-const { createUser, getUsers } = createUserController({ pool });
+const { createUser, getUsers, resetUserPassword } = createUserController({ pool });
 
 async function verifyStoredPassword(password, storedPassword) {
   if (storedPassword === "12345") return password === "12345";
@@ -111,6 +111,7 @@ router.post("/set-password", async (req, res) => {
 
 router.get("/users", verifyToken, getUsers);
 router.post("/users", verifyToken, createUser);
+router.put("/users/:userId/reset-password", verifyToken, resetUserPassword);
 
 module.exports = router;
 module.exports.verifyStoredPassword = verifyStoredPassword;

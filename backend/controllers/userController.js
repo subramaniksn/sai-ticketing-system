@@ -1,5 +1,5 @@
 const bcrypt = require("bcrypt");
-const { validateNewUser } = require("../validation/userValidation");
+const { validateNewUser, validateTemporaryPassword } = require("../validation/userValidation");
 
 function isDispatcher(req) {
   return req.user?.role === "Dispatcher";
@@ -78,7 +78,52 @@ function createUserController({ pool, passwordHasher = bcrypt }) {
     }
   }
 
-  return { createUser, getUsers };
+  async function resetUserPassword(req, res) {
+    if (!isDispatcher(req)) {
+      return res.status(403).json({ msg: "Only Dispatchers allowed" });
+    }
+
+    const userId = Number.parseInt(req.params.userId, 10);
+    if (!Number.isInteger(userId) || userId <= 0) {
+      return res.status(400).json({ msg: "Invalid user ID" });
+    }
+
+    const temporaryPassword = req.body?.temporaryPassword;
+    const passwordError = validateTemporaryPassword(temporaryPassword);
+    if (passwordError) {
+      return res.status(400).json({ msg: passwordError });
+    }
+
+    try {
+      const passwordHash = await passwordHasher.hash(temporaryPassword, 10);
+      const result = await pool.query(
+        `UPDATE "Users"
+         SET "Password" = $1, "IsFirstLogin" = true
+         WHERE "UserID" = $2
+         RETURNING "UserID", "Role", "Email", "Phone", "IsFirstLogin"`,
+        [passwordHash, userId]
+      );
+
+      if (!result.rows.length) {
+        return res.status(404).json({ msg: "User not found" });
+      }
+
+      return res.json({
+        msg: "Temporary password reset successfully",
+        user: result.rows[0]
+      });
+    } catch (err) {
+      console.error("Reset user password error:", {
+        code: err.code,
+        message: err.message,
+        column: err.column,
+        constraint: err.constraint
+      });
+      return res.status(500).json({ msg: "Failed to reset user password" });
+    }
+  }
+
+  return { createUser, getUsers, resetUserPassword };
 }
 
 module.exports = { createUserController };

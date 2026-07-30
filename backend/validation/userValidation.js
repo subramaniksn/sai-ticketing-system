@@ -39,4 +39,11 @@ function validateNewUser(input = {}) {
   return { data, errors };
 }
 
-module.exports = { ALLOWED_USER_ROLES, validateNewUser };
+function validateTemporaryPassword(value) {
+  if (typeof value !== "string" || value.length < 8 || value.length > 72) {
+    return "Temporary Password must contain 8 to 72 characters";
+  }
+  return "";
+}
+
+module.exports = { ALLOWED_USER_ROLES, validateNewUser, validateTemporaryPassword };

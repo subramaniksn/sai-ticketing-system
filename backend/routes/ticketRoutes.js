@@ -5,6 +5,7 @@ const verifyToken = require("../middleware/authMiddleware");
 const createCsvWriter = require('csv-writer').createObjectCsvWriter;
 const fs = require('fs');
 const { createAmcCustomerController } = require("../controllers/amcCustomerController");
+const { createTicketStatusController } = require("../controllers/ticketStatusController");
 const { validateManagerNotification } = require("../validation/managerNotificationValidation");
 
 // ✅ NEW: WhatsApp notification
@@ -16,6 +17,7 @@ const {
   getRemotePassword,
   getTicketRemotePassword
 } = createAmcCustomerController({ pool });
+const { updateTicketStatus } = createTicketStatusController({ pool });
 
 // ✅ Generate Ticket No Function (PostgreSQL)
 async function generateTicketNo() {
@@ -243,57 +245,7 @@ router.get("/mytickets", verifyToken, async (req, res) => {
 
 
 // ✅ Update Status
-router.put("/update-status/:id", verifyToken, async (req, res) => {
-  try {
-    if (req.user.role !== "Engineer") {
-      return res.status(403).json({ msg: "Only Engineers allowed" });
-    }
-
-    const ticketId = req.params.id;
-    const { status } = req.body;
-
-    let query = "";
-    let values = [];
-
-    if (status === "InProgress") {
-      query = `
-        UPDATE "Tickets"
-        SET "Status"='InProgress',
-            "InProgress_Date"=NOW()
-        WHERE "TicketID"=$1
-          AND "AssignedTo"=$2
-          AND "Status"='Open'
-      `;
-      values = [ticketId, req.user.email];
-
-    } else if (status === "Pending") {
-      query = `
-        UPDATE "Tickets"
-        SET "Status"='Pending',
-            "Pending_Date"=NOW()
-        WHERE "TicketID"=$1
-          AND "AssignedTo"=$2
-          AND "Status"='InProgress'
-      `;
-      values = [ticketId, req.user.email];
-
-    } else {
-      return res.status(400).json({ msg: "Invalid status transition" });
-    }
-
-    const result = await pool.query(query, values);
-
-    if (result.rowCount === 0) {
-      return res.status(404).json({ msg: "Invalid workflow step" });
-    }
-
-    res.json({ msg: `Status updated to ${status} ✅` });
-
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ msg: "Failed to update status" });
-  }
-});
+router.put("/update-status/:id", verifyToken, updateTicketStatus);
 
 
 // ✅ Resolve Ticket
