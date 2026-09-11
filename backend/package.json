@@ -5,10 +5,10 @@
   "scripts": {
     "test": "node --test tests",
     "setup:amc-security": "node scripts/setupAmcSecurity.js",
-    "setup:user-security": "node scripts/setupUserSecurity.js"
+    "setup:user-security": "node scripts/setupUserSecurity.js",
+    "setup:email-automation": "node scripts/setupEmailAutomation.js"
   },
   "dependencies": {
-    "@whiskeysockets/baileys": "^7.0.0-rc13",
     "bcrypt": "^6.0.0",
     "bcryptjs": "^2.4.3",
     "cors": "^2.8.5",
@@ -19,7 +19,6 @@
     "jsonwebtoken": "^9.0.0",
     "node-cron": "^4.2.1",
     "pg": "^8.18.0",
-    "qrcode-terminal": "^0.12.0",
     "tedious": "^19.2.0"
   },
   "devDependencies": {

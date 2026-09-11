@@ -8,8 +8,12 @@ const { createAmcCustomerController } = require("../controllers/amcCustomerContr
 const { createTicketStatusController } = require("../controllers/ticketStatusController");
 const { validateManagerNotification } = require("../validation/managerNotificationValidation");
 
-// ✅ NEW: WhatsApp notification
-const { notifyEngineerTicketCreated,sendWhatsApp } = require('../whatsappService');
+// Microsoft 365 email notifications
+const {
+  notifyDispatcherManagerAlert,
+  notifyEngineerTicketAssigned
+} = require("../emailService");
+const { sendManagerWhatsApp } = require("../whatsappService");
 const {
   createAmcCustomer,
   updateAmcCustomer,
@@ -17,7 +21,19 @@ const {
   getRemotePassword,
   getTicketRemotePassword
 } = createAmcCustomerController({ pool });
-const { updateTicketStatus } = createTicketStatusController({ pool });
+const { updateTicketStatus } = createTicketStatusController({ pool, sendManagerWhatsApp });
+
+// Kept separate from Tickets so every follow-up remains visible after resolution.
+async function ensureTicketCommentsTable() {
+  await pool.query(`CREATE TABLE IF NOT EXISTS "TicketComments" (
+    "CommentID" SERIAL PRIMARY KEY,
+    "TicketID" INTEGER NOT NULL REFERENCES "Tickets"("TicketID") ON DELETE CASCADE,
+    "Comment" TEXT NOT NULL,
+    "UpdateType" VARCHAR(30) NOT NULL,
+    "CreatedBy" VARCHAR(255) NOT NULL,
+    "CreatedAt" TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`);
+}
 
 // ✅ Generate Ticket No Function (PostgreSQL)
 async function generateTicketNo() {
@@ -39,7 +55,7 @@ async function generateTicketNo() {
 }
 
 
-// ✅ Dispatcher Create Ticket — WITH WhatsApp notification
+// Dispatcher creates a ticket and the assigned engineer is notified by email.
 router.post("/create", verifyToken, async (req, res) => {
   try {
     if (req.user.role !== "Dispatcher") {
@@ -53,7 +69,8 @@ router.post("/create", verifyToken, async (req, res) => {
       priority,
       assignedTo,
       amcCustomerId,
-      ticketType
+      ticketType,
+      sourceNotificationId
     } = req.body;
 
     const ticketNo = await generateTicketNo();
@@ -75,34 +92,34 @@ router.post("/create", verifyToken, async (req, res) => {
       }
     }
 
-    await pool.query(
-      `INSERT INTO "Tickets"
-       ("TicketNo","CustomerName","SiteName","IssueDetails","priority",
-        "AssignedTo","AmcCustomerId","TicketType","Status",
-        "ReminderSent","EscalationSent")
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'Open',false,false)`,
-      [
-        ticketNo,
-        customerName,
-        siteName,
-        issueDetails,
-        priority || "Medium",
-        assignedTo,
-        amcCustomerId || null,
-        ticketType || "NON_AMC"
-      ]
-    );
+        await pool.query(
+          `INSERT INTO "Tickets"
+          ("TicketNo","CustomerName","SiteName","IssueDetails","priority",
+            "AssignedTo","AmcCustomerId","TicketType","Status",
+            "ReminderSent","EscalationSent","SourceNotificationId")
+          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'Open',false,false,$9)`,
+          [
+            ticketNo,
+            customerName,
+            siteName,
+            issueDetails,
+            priority || "Medium",
+            assignedTo,
+            amcCustomerId || null,
+            ticketType || "NON_AMC",
+            sourceNotificationId || null
+          ]
+        );
 
-    // ✅ Fetch engineer phone and send WhatsApp
+    // Fetch the engineer and send the assignment email.
     try {
       const engRes = await pool.query(
-        `SELECT "Email", "Phone" FROM public."Users" WHERE "Email" = $1`,
+        `SELECT "Email" FROM public."Users" WHERE "Email" = $1`,
         [assignedTo]
       );
       const engineer = engRes.rows[0];
 
-      if (engineer?.Phone) {
-        const engineerName = engineer.Email.split('@')[0];
+      if (engineer?.Email) {
         const createdTimeIST = new Date().toLocaleString('en-IN', {
           timeZone: 'Asia/Kolkata',
           hour12: true,
@@ -111,9 +128,8 @@ router.post("/create", verifyToken, async (req, res) => {
         });
 
         // Fire-and-forget — never blocks the API response
-        notifyEngineerTicketCreated(
-          engineer.Phone,
-          engineerName,
+        notifyEngineerTicketAssigned(
+          engineer.Email,
           {
             ticketNo,
             customerName,
@@ -122,14 +138,14 @@ router.post("/create", verifyToken, async (req, res) => {
             priority: priority || 'Medium',
             createdTime: createdTimeIST
           }
-        ).catch(err => console.error('WhatsApp notify error:', err.message));
+        ).catch(err => console.error('Assignment email error:', err.message));
 
       } else {
-        console.warn(`⚠️ No phone for ${assignedTo} — WhatsApp skipped`);
+        console.warn(`Engineer email not found for ${assignedTo}; assignment email skipped`);
       }
-    } catch (waErr) {
-      // WhatsApp failure must never break ticket creation
-      console.error('WhatsApp lookup error:', waErr.message);
+    } catch (emailError) {
+      // Email failure must never break ticket creation.
+      console.error('Assignment email lookup error:', emailError.message);
     }
 
     res.json({ msg: "Ticket Created Successfully", ticketNo });
@@ -194,6 +210,32 @@ router.get("/amc", verifyToken, getAmcCustomers);
 router.get("/amc/:customerId/remote-password", verifyToken, getRemotePassword);
 router.get("/ticket/:ticketId/remote-password", verifyToken, getTicketRemotePassword);
 
+router.get("/ticket/:id/comments", verifyToken, async (req, res) => {
+  const ticketId = Number(req.params.id);
+  if (!Number.isInteger(ticketId) || ticketId <= 0) return res.status(400).json({ msg: "Invalid ticket ID" });
+  try {
+    await ensureTicketCommentsTable();
+    const ticket = await pool.query(
+      `SELECT "AssignedTo" FROM "Tickets" WHERE "TicketID" = $1`, [ticketId]
+    );
+    if (!ticket.rows.length) return res.status(404).json({ msg: "Ticket not found" });
+    if (req.user.role === "Engineer" && ticket.rows[0].AssignedTo !== req.user.email) {
+      return res.status(403).json({ msg: "Access denied" });
+    }
+    if (!["Engineer", "Dispatcher", "Manager"].includes(req.user.role)) {
+      return res.status(403).json({ msg: "Access denied" });
+    }
+    const result = await pool.query(
+      `SELECT "CommentID", "Comment", "UpdateType", "CreatedBy", "CreatedAt"
+       FROM "TicketComments" WHERE "TicketID" = $1 ORDER BY "CreatedAt" ASC`, [ticketId]
+    );
+    return res.json(result.rows);
+  } catch (err) {
+    console.error("Load ticket comments error:", err);
+    return res.status(500).json({ msg: "Failed to load work updates" });
+  }
+});
+
 
 // ✅ Engineer My Tickets
 router.get("/mytickets", verifyToken, async (req, res) => {
@@ -243,6 +285,32 @@ router.get("/mytickets", verifyToken, async (req, res) => {
   }
 });
 
+router.post("/ticket/:id/comment", verifyToken, async (req, res) => {
+  if (req.user.role !== "Engineer") return res.status(403).json({ msg: "Only Engineers allowed" });
+  const ticketId = Number(req.params.id);
+  const comment = typeof req.body?.comment === "string" ? req.body.comment.trim() : "";
+  const updateType = ["Started work", "Waiting for customer", "Follow-up"].includes(req.body?.updateType)
+    ? req.body.updateType : "Follow-up";
+  if (!Number.isInteger(ticketId) || ticketId <= 0 || !comment) {
+    return res.status(400).json({ msg: "A work update is required" });
+  }
+  try {
+    await ensureTicketCommentsTable();
+    const result = await pool.query(
+      `INSERT INTO "TicketComments" ("TicketID", "Comment", "UpdateType", "CreatedBy")
+      SELECT "TicketID", $1, $2, $3::varchar
+      FROM "Tickets"
+      WHERE "TicketID" = $4 AND "AssignedTo" = $3::varchar AND "Status" <> 'Resolved'`,
+      [comment, updateType, req.user.email, ticketId]
+    );
+    if (!result.rowCount) return res.status(404).json({ msg: "Active assigned ticket not found" });
+    return res.status(201).json({ msg: "Work update saved" });
+  } catch (err) {
+    console.error("Save ticket comment error:", err);
+    return res.status(500).json({ msg: "Failed to save work update" });
+  }
+});
+
 
 // ✅ Update Status
 router.put("/update-status/:id", verifyToken, updateTicketStatus);
@@ -276,6 +344,13 @@ router.put("/resolve/:id", verifyToken, async (req, res) => {
     if (result.rowCount === 0) {
       return res.status(404).json({ msg: "Ticket must be InProgress or Pending" });
     }
+
+    await ensureTicketCommentsTable();
+    await pool.query(
+      `INSERT INTO "TicketComments" ("TicketID", "Comment", "UpdateType", "CreatedBy")
+       VALUES ($1, $2, 'Resolved', $3)`,
+      [ticketId, remark.trim(), req.user.email]
+    );
 
     res.json({ msg: "Ticket Resolved Successfully ✅" });
 
@@ -450,17 +525,16 @@ router.put("/reassign/:id", verifyToken, async (req, res) => {
       [assignedTo, req.params.id]
     );
 
-    // ✅ Send WhatsApp to new engineer
+    // Send an email to the newly assigned engineer.
     try {
       const engRes = await pool.query(
-        `SELECT "Email", "Phone" FROM public."Users" WHERE "Email" = $1`,
+        `SELECT "Email" FROM public."Users" WHERE "Email" = $1`,
         [assignedTo]
       );
       const engineer = engRes.rows[0];
       const ticket = ticketRes.rows[0];
 
-      if (engineer?.Phone && ticket) {
-        const engineerName = engineer.Email.split('@')[0];
+      if (engineer?.Email && ticket) {
         const assignedTimeIST = new Date().toLocaleString('en-IN', {
           timeZone: 'Asia/Kolkata',
           hour12: true,
@@ -468,9 +542,8 @@ router.put("/reassign/:id", verifyToken, async (req, res) => {
           hour: '2-digit', minute: '2-digit'
         });
 
-        notifyEngineerTicketCreated(
-          engineer.Phone,
-          engineerName,
+        notifyEngineerTicketAssigned(
+          engineer.Email,
           {
             ticketNo: ticket.TicketNo,
             customerName: ticket.CustomerName,
@@ -479,12 +552,12 @@ router.put("/reassign/:id", verifyToken, async (req, res) => {
             priority: ticket.priority,
             createdTime: assignedTimeIST
           }
-        ).catch(err => console.error('WhatsApp reassign notify error:', err.message));
+        ).catch(err => console.error('Reassignment email error:', err.message));
 
-        console.log(`✅ Reassignment WhatsApp sent to ${assignedTo}`);
+        console.log(`Reassignment email queued for ${assignedTo}`);
       }
-    } catch (waErr) {
-      console.error('WhatsApp reassign error:', waErr.message);
+    } catch (emailError) {
+      console.error('Reassignment email error:', emailError.message);
     }
 
     res.json({ msg: "✅ Ticket reassigned successfully" });
@@ -538,39 +611,31 @@ router.post("/manager-notify", verifyToken, async (req, res) => {
       [customerName, siteName, issueDetails, priority, req.user.email]
     );
 
-    // 2️⃣ SEND WHATSAPP TO DISPATCHER 🔥
+    // Send the manager alert to all dispatchers by email.
     try {
       const dispatcherRes = await pool.query(
-        `SELECT "Phone" FROM public."Users" WHERE "Role" = 'Dispatcher' LIMIT 1`
+        `SELECT "Email" FROM public."Users" WHERE "Role" = 'Dispatcher'`
       );
 
-      const dispatcher = dispatcherRes.rows[0];
+      const dispatcherEmails = dispatcherRes.rows
+        .map((dispatcher) => dispatcher.Email)
+        .filter(Boolean);
 
-      if (dispatcher?.Phone) {
-
-        const msg =
-`🔔 *Manager Alert — SAI Automation*
-
-👔 From: ${req.user.email.split('@')[0]}
-🏢 Customer: ${customerName}
-📍 Site: ${siteName}
-⚠️ Priority: ${priority}
-
-📋 Issue:
-${issueDetails}
-
-👉 Please check Dispatcher Dashboard immediately.
-`;
-
-        await sendWhatsApp(dispatcher.Phone, msg);
-
-        console.log("✅ WhatsApp sent to Dispatcher");
+      if (dispatcherEmails.length) {
+        await notifyDispatcherManagerAlert(dispatcherEmails, {
+          sentBy: req.user.email,
+          customerName,
+          siteName,
+          priority,
+          issueDetails
+        });
+        console.log("Manager alert emailed to dispatchers");
       } else {
-        console.log("⚠️ Dispatcher phone not found");
+        console.log("Dispatcher email not found");
       }
 
-    } catch (waErr) {
-      console.error("❌ WhatsApp error:", waErr.message);
+    } catch (emailError) {
+      console.error("Manager alert email error:", emailError.message);
     }
 
     res.status(201).json({ msg: "✅ Notification sent to Dispatcher!" });
@@ -589,7 +654,9 @@ router.get("/manager-notifications", verifyToken, async (req, res) => {
     }
 
     const result = await pool.query(
-      `SELECT * FROM "ManagerNotifications"
+      `SELECT "NotificationID", "CustomerName", "SiteName", "IssueDetails", "Priority", "SentBy", "Status", "TicketProgress",
+              "CreatedAt"::timestamptz AT TIME ZONE 'Asia/Kolkata' AS "CreatedAt"
+       FROM "ManagerNotifications"
        ORDER BY "CreatedAt" DESC`
     );
 
@@ -597,6 +664,23 @@ router.get("/manager-notifications", verifyToken, async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ msg: "Failed to fetch notifications" });
+  }
+});
+
+// The manager can see every alert they created until the dispatcher closes it.
+router.get("/manager-notifications/mine", verifyToken, async (req, res) => {
+  if (req.user.role !== "Manager") return res.status(403).json({ msg: "Only Manager allowed" });
+  try {
+    const result = await pool.query(
+      `SELECT "NotificationID", "CustomerName", "SiteName", "IssueDetails", "Priority", "SentBy", "Status", "TicketProgress",
+              "CreatedAt"::timestamptz AT TIME ZONE 'Asia/Kolkata' AS "CreatedAt"
+       FROM "ManagerNotifications" WHERE "SentBy" = $1 ORDER BY "CreatedAt" DESC`,
+      [req.user.email]
+    );
+    return res.json(result.rows);
+  } catch (err) {
+    console.error("Load manager notifications error:", err);
+    return res.status(500).json({ msg: "Failed to fetch notifications" });
   }
 });
 
@@ -608,7 +692,8 @@ router.put("/manager-notify/:id/done", verifyToken, async (req, res) => {
     }
 
     const result = await pool.query(
-      `UPDATE "ManagerNotifications" SET "Status" = 'done' WHERE "NotificationID" = $1`,
+      `UPDATE "ManagerNotifications" SET "Status" = 'done' WHERE "NotificationID" = $1
+       RETURNING "CustomerName", "SiteName", "SentBy"`,
       [req.params.id]
     );
 
@@ -616,7 +701,21 @@ router.put("/manager-notify/:id/done", verifyToken, async (req, res) => {
       return res.status(404).json({ msg: "Notification not found" });
     }
 
-    res.json({ msg: "✅ Marked as done" });
+    let whatsappSent = false;
+    try {
+      const manager = await pool.query(`SELECT "Phone" FROM "Users" WHERE "Email" = $1`, [result.rows[0].SentBy]);
+      const alert = result.rows[0];
+      const delivery = await sendManagerWhatsApp(
+        manager.rows[0]?.Phone,
+        `Dispatcher update: your alert for ${alert.CustomerName} — ${alert.SiteName} has been completed.`
+      );
+      whatsappSent = delivery.sent;
+    } catch (whatsappError) {
+      // A delivery problem must not prevent the dispatcher from completing the alert.
+      console.error("Manager WhatsApp notification error:", whatsappError.message);
+    }
+
+    res.json({ msg: "✅ Marked as done", whatsappSent });
   } catch (err) {
     console.error(err);
     res.status(500).json({ msg: "Failed to update" });

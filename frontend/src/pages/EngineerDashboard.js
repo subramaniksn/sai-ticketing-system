@@ -245,6 +245,7 @@ export default function EngineerDashboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [remarks, setRemarks] = useState({});
+  const [workUpdates, setWorkUpdates] = useState([]);
   const [processing, setProcessing] = useState({});
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const [viewMode, setViewMode] = useState("table");
@@ -275,10 +276,19 @@ export default function EngineerDashboard() {
   }, [navigate]);
 
   const updateStatus = useCallback(async (ticketId, status) => {
+    const comment = remarks[ticketId]?.trim();
+    if (!comment) {
+      alert("Please add a work update before changing status");
+      return;
+    }
     try {
       setProcessing(prev => ({ ...prev, [ticketId]: true }));
       const token = localStorage.getItem("token");
-      const res = await API.put(`/tickets/update-status/${ticketId}`, { status }, {
+      await API.post(`/tickets/ticket/${ticketId}/comment`, {
+        comment,
+        updateType: status === "InProgress" ? "Started work" : "Waiting for customer"
+      }, { headers: { Authorization: `Bearer ${token}` } });
+      const res = await API.put(`/tickets/update-status/${ticketId}`, { status, comment }, {
         headers: { Authorization: `Bearer ${token}` }
       });
       const updatedTicket = res.data?.ticket;
@@ -297,12 +307,34 @@ export default function EngineerDashboard() {
       }
 
       await loadTickets();
+      setRemarks(prev => ({ ...prev, [ticketId]: "" }));
+      const updates = await API.get(`/tickets/ticket/${ticketId}/comments`, { headers: { Authorization: `Bearer ${token}` } });
+      setWorkUpdates(updates.data || []);
     } catch (err) {
       alert("Error: " + (err.response?.data?.msg || "Failed to update status"));
     } finally {
       setProcessing(prev => ({ ...prev, [ticketId]: false }));
     }
-  }, [loadTickets]);
+  }, [loadTickets, remarks]);
+
+  const saveFollowUp = useCallback(async (ticketId) => {
+    const comment = remarks[ticketId]?.trim();
+    if (!comment) return alert("Please enter a follow-up update");
+    try {
+      setProcessing(prev => ({ ...prev, [ticketId]: true }));
+      const token = localStorage.getItem("token");
+      await API.post(`/tickets/ticket/${ticketId}/comment`, { comment, updateType: "Follow-up" }, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setRemarks(prev => ({ ...prev, [ticketId]: "" }));
+      const updates = await API.get(`/tickets/ticket/${ticketId}/comments`, { headers: { Authorization: `Bearer ${token}` } });
+      setWorkUpdates(updates.data || []);
+    } catch (err) {
+      alert("Error: " + (err.response?.data?.msg || "Failed to save follow-up"));
+    } finally {
+      setProcessing(prev => ({ ...prev, [ticketId]: false }));
+    }
+  }, [remarks]);
 
   const resolveTicket = useCallback(async (ticketId) => {
     const ticketRemark = remarks[ticketId];
@@ -335,6 +367,13 @@ export default function EngineerDashboard() {
   };
 
   useEffect(() => { loadTickets(); }, [loadTickets]);
+  useEffect(() => {
+    if (!selectedTicket) return;
+    const token = localStorage.getItem("token");
+    API.get(`/tickets/ticket/${selectedTicket.TicketID}/comments`, {
+      headers: { Authorization: `Bearer ${token}` }
+    }).then(res => setWorkUpdates(res.data || [])).catch(() => setWorkUpdates([]));
+  }, [selectedTicket]);
 
   if (loading) {
     return (
@@ -503,12 +542,21 @@ export default function EngineerDashboard() {
                         <div style={{ fontSize: "14px", color: "#1e293b" }}>{t.Remark}</div>
                       </div>
                     )}
+                    <div style={{ marginTop: "12px" }}>
+                      <div style={{ fontSize: "12px", fontWeight: "700", color: "#6b7280", marginBottom: "8px" }}>WORK UPDATE HISTORY</div>
+                      {workUpdates.length ? workUpdates.map(update => (
+                        <div key={update.CommentID} style={{ padding: "10px 12px", marginBottom: "8px", background: "#f8fafc", borderLeft: "4px solid #1976d2", borderRadius: "6px" }}>
+                          <strong>{update.UpdateType}</strong> · {formatIstDate(update.CreatedAt)}<br />
+                          {update.Comment}
+                        </div>
+                      )) : <div style={{ color: "#6b7280", fontSize: "13px" }}>No work updates yet.</div>}
+                    </div>
                   </div>
 
                   {/* RIGHT — Actions */}
                   <div style={styles.actionsSection}>
                     <textarea
-                      placeholder="Add remark before resolving..."
+                      placeholder="Write the next work update (required for Start Work, Wait Customer, follow-up, and Resolve)..."
                       value={remarks[t.TicketID] || ""}
                       onChange={(e) => updateRemark(t.TicketID, e.target.value)}
                       style={styles.remarkInput}
@@ -536,6 +584,14 @@ export default function EngineerDashboard() {
                       }}
                     >
                       {processing[t.TicketID] ? "⏳ Processing..." : "📞 Wait Customer"}
+                    </button>
+
+                    <button
+                      onClick={() => saveFollowUp(t.TicketID)}
+                      disabled={!remarks[t.TicketID]?.trim() || !["InProgress", "Pending"].includes(t.Status) || processing[t.TicketID]}
+                      style={{ ...styles.actionButton, background: "#6366f1", opacity: (!remarks[t.TicketID]?.trim() || !["InProgress", "Pending"].includes(t.Status)) ? 0.6 : 1 }}
+                    >
+                      💬 Save Follow-up
                     </button>
 
                     <button

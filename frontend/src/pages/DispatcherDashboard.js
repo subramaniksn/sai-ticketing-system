@@ -379,9 +379,11 @@ const styles = {
 // ✅ DATETIME UTILITY
 const formatIstDate = (dateString) => {
   if (!dateString) return '';
-
-  const date = new Date(dateString);
-
+  const normalized = typeof dateString === 'string' && !dateString.includes('T')
+    ? dateString.replace(' ', 'T') + 'Z'
+    : dateString;
+  const date = new Date(normalized);
+  if (isNaN(date.getTime())) return '';
   return date.toLocaleString("en-IN", {
     timeZone: "Asia/Kolkata",
     year: "numeric",
@@ -460,7 +462,8 @@ export default function DispatcherDashboard() {
     assignedTo: "",
     ticketType: "NON_AMC",        // 🔥 NEW
     isAmcCustomer: false,
-    amcCustomerId: ""
+    amcCustomerId: "",
+    sourceNotificationId: null
   });
 
   const loadUsers = useCallback(async () => {
@@ -719,6 +722,7 @@ useEffect(() => {
         priority: form.priority,
         assignedTo: form.assignedTo,
         ticketType: form.ticketType,                    // 🔥 NEW
+        sourceNotificationId: form.sourceNotificationId || null,
         ...(form.ticketType === "AMC" && { amcCustomerId: parseInt(form.amcCustomerId) })
       };
 
@@ -736,7 +740,8 @@ useEffect(() => {
         assignedTo: engineers[0],
         ticketType: "NON_AMC",       // 🔥 NEW
         isAmcCustomer: false,
-        amcCustomerId: ""
+        amcCustomerId: "",
+        sourceNotificationId: null
       });
       
       loadTickets();
@@ -954,8 +959,16 @@ useEffect(() => {
     </div>
   );
 
-  const TicketCard = ({ ticket }) => (
-  <div style={styles.ticketCard}>
+  const TicketCard = ({ ticket }) => {
+  const [workUpdates, setWorkUpdates] = useState([]);
+  useEffect(() => {
+    if (!ticket) return;
+    const token = localStorage.getItem("token");
+    API.get(`/tickets/ticket/${ticket.TicketID}/comments`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(res => setWorkUpdates(res.data || []))
+      .catch(() => setWorkUpdates([]));
+  }, [ticket]);
+  return <div style={styles.ticketCard}>
     
     <div style={styles.ticketHeader}>
       <div style={styles.ticketNumber}>🎫 {ticket.TicketNo}</div>
@@ -1019,6 +1032,12 @@ useEffect(() => {
       </div>
     )}
 
+    {ticket.RemoteConnectionScheduledAt && (
+      <div style={styles.timestamp}>
+        🖥️ Remote Connection: {formatIstDate(ticket.RemoteConnectionScheduledAt)}
+      </div>
+    )}
+
     {ticket.InProgress_Date && (
       <div style={styles.timestamp}>
         🚀 Started: {formatIstDate(ticket.InProgress_Date)}
@@ -1049,8 +1068,16 @@ useEffect(() => {
         <span style={styles.issueText}>{ticket.Remark}</span>
       </div>
     )}
-  </div>
-);
+    <div style={styles.issueRow}>
+      <span style={styles.issueLabel}>Engineer work updates:</span>
+      {workUpdates.length ? workUpdates.map(update => (
+        <div key={update.CommentID} style={{ marginTop: "8px", padding: "10px", background: "#f8fafc", borderLeft: "3px solid #1976d2", borderRadius: "6px" }}>
+          <strong>{update.UpdateType}</strong> · {formatIstDate(update.CreatedAt)}<br />{update.Comment}
+        </div>
+      )) : <span style={styles.issueText}>No work updates yet.</span>}
+    </div>
+  </div>;
+};
 
   if (loading || amcLoading) {
     return (
@@ -1510,9 +1537,7 @@ const td = {
                   By: {n.SentBy.split('@')[0]}
 
                   &nbsp;|&nbsp;
-                  {new Date(n.CreatedAt).toLocaleString('en-IN', {
-                    timeZone:'Asia/Kolkata'
-                  })}
+                  {formatIstDate(n.CreatedAt)}
                 </div>
               </div>
 
@@ -1540,6 +1565,27 @@ const td = {
                     }}
                   >
                     ✅ Done
+                  </button>
+                )}
+
+                {n.Status === 'pending' && (
+                  <button
+                    onClick={() => {
+                      setForm(prev => ({
+                        ...prev,
+                        ticketType: "NON_AMC",
+                        customerName: n.CustomerName,
+                        siteName: n.SiteName,
+                        issueDetails: n.IssueDetails,
+                        priority: n.Priority,
+                        sourceNotificationId: n.NotificationID
+                      }));
+                      setShowNotifications(false);
+                      window.scrollTo({ top: 0, behavior: "smooth" });
+                    }}
+                    style={{ background:'#1976d2', color:'white', border:'none', padding:'5px 10px', borderRadius:'4px', cursor:'pointer', fontSize:'12px' }}
+                  >
+                    🎫 Create Ticket
                   </button>
                 )}
 

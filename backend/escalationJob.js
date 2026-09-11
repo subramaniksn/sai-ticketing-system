@@ -1,34 +1,30 @@
-// backend/escalationJob.js
-// ✅ Cron job: 20-min reminder + SLA escalation via WhatsApp (Baileys)
-
-const cron = require('node-cron');
-const pool = require('./db');
+const cron = require("node-cron");
+const pool = require("./db");
 const {
   notifyEngineerReminder,
   notifyManagerSlaBreached
-} = require('./whatsappService');
+} = require("./emailService");
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
-const toIst = (dateString) => {
-  if (!dateString) return 'N/A';
-  return new Date(dateString).toLocaleString('en-IN', {
-    timeZone: 'Asia/Kolkata',
+function toIst(dateString) {
+  if (!dateString) return "N/A";
+  return new Date(dateString).toLocaleString("en-IN", {
+    timeZone: "Asia/Kolkata",
     hour12: true,
-    year: 'numeric', month: 'short', day: '2-digit',
-    hour: '2-digit', minute: '2-digit'
+    year: "numeric",
+    month: "short",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit"
   });
-};
+}
 
-// ─── 20-min Reminder ─────────────────────────────────────────────────────────
-const checkReminders = async () => {
+async function checkReminders() {
   try {
-    // Tickets still 'Open', created > 20 min ago, reminder NOT yet sent
     const { rows } = await pool.query(`
       SELECT
         t."TicketID", t."TicketNo", t."CustomerName", t."SiteName",
         t."IssueDetails", t."priority", t."CreatedTime",
-        u."Email" AS "EngineerEmail",
-        u."Phone" AS "EngineerPhone"
+        u."Email" AS "EngineerEmail"
       FROM public."Tickets" t
       JOIN public."Users" u ON u."Email" = t."AssignedTo"
       WHERE
@@ -38,113 +34,91 @@ const checkReminders = async () => {
     `);
 
     for (const ticket of rows) {
-      const engineerName = ticket.EngineerEmail.split('@')[0];
-      console.log(`⏰ 20-min reminder → ${ticket.TicketNo} | ${ticket.EngineerEmail}`);
-
-      await notifyEngineerReminder(
-        ticket.EngineerPhone,
-        engineerName,
-        {
-          ticketNo:     ticket.TicketNo,
-          customerName: ticket.CustomerName,
-          siteName:     ticket.SiteName,
-          priority:     ticket.priority
-        }
-      );
-
-      // Mark so it won't fire again
+      console.log(`20-minute reminder: ${ticket.TicketNo} -> ${ticket.EngineerEmail}`);
+      await notifyEngineerReminder(ticket.EngineerEmail, {
+        ticketNo: ticket.TicketNo,
+        customerName: ticket.CustomerName,
+        siteName: ticket.SiteName,
+        priority: ticket.priority
+      });
       await pool.query(
         `UPDATE public."Tickets" SET "ReminderSent" = true WHERE "TicketID" = $1`,
         [ticket.TicketID]
       );
     }
-
-    if (rows.length > 0) console.log(`✅ Sent ${rows.length} reminder(s)`);
-
-  } catch (err) {
-    console.error('❌ Reminder check error:', err.message);
+  } catch (error) {
+    console.error("Reminder check error:", error.message);
   }
-};
+}
 
-// ─── SLA Escalation ──────────────────────────────────────────────────────────
-const checkEscalations = async () => {
+async function checkEscalations() {
   try {
-    // Tickets not resolved, SLA breached, escalation NOT yet sent
-    // Cross joins with ALL managers so each manager gets notified
     const { rows } = await pool.query(`
       SELECT
         t."TicketID", t."TicketNo", t."CustomerName", t."SiteName",
         t."IssueDetails", t."priority", t."CreatedTime", t."Status",
-        u."Email"  AS "EngineerEmail",
-        u."Phone"  AS "EngineerPhone",
-        m."Email"  AS "ManagerEmail",
-        m."Phone"  AS "ManagerPhone"
+        u."Email" AS "EngineerEmail",
+        ARRAY_AGG(m."Email" ORDER BY m."Email") AS "ManagerEmails"
       FROM public."Tickets" t
       JOIN public."Users" u ON u."Email" = t."AssignedTo"
       CROSS JOIN (
-        SELECT "Email", "Phone" FROM public."Users" WHERE "Role" = 'Manager'
+        SELECT "Email" FROM public."Users" WHERE "Role" = 'Manager'
       ) m
       WHERE
-        t."Status" NOT IN ('Resolved')
+        t."Status" <> 'Resolved'
         AND t."EscalationSent" = false
         AND (
-          (t."priority" = 'High'   AND t."CreatedTime" <= NOW() - INTERVAL '2 hours')  OR
-          (t."priority" = 'Medium' AND t."CreatedTime" <= NOW() - INTERVAL '8 hours')  OR
-          (t."priority" = 'Low'    AND t."CreatedTime" <= NOW() - INTERVAL '24 hours')
+          (t."priority" = 'High' AND t."CreatedTime" <= NOW() - INTERVAL '2 hours') OR
+          (t."priority" = 'Medium' AND t."CreatedTime" <= NOW() - INTERVAL '8 hours') OR
+          (t."priority" = 'Low' AND t."CreatedTime" <= NOW() - INTERVAL '24 hours')
         )
+      GROUP BY
+        t."TicketID", t."TicketNo", t."CustomerName", t."SiteName",
+        t."IssueDetails", t."priority", t."CreatedTime", t."Status",
+        u."Email"
     `);
 
-    const escalatedIds = new Set();
+    const sentTicketIds = [];
 
     for (const ticket of rows) {
-      const engineerName = ticket.EngineerEmail.split('@')[0];
-      const managerName  = ticket.ManagerEmail.split('@')[0];
-
-      console.log(`🚨 SLA breach → ${ticket.TicketNo} | Manager: ${ticket.ManagerEmail}`);
-
-      await notifyManagerSlaBreached(
-        ticket.ManagerPhone,
-        managerName,
-        {
-          ticketNo:     ticket.TicketNo,
-          customerName: ticket.CustomerName,
-          siteName:     ticket.SiteName,
-          issueDetails: ticket.IssueDetails,
-          priority:     ticket.priority,
-          status:       ticket.Status,
-          createdTime:  toIst(ticket.CreatedTime)
-        },
-        engineerName
-      );
-
-      escalatedIds.add(ticket.TicketID);
+      try {
+        await notifyManagerSlaBreached(
+          ticket.ManagerEmails,
+          {
+            ticketNo: ticket.TicketNo,
+            customerName: ticket.CustomerName,
+            siteName: ticket.SiteName,
+            issueDetails: ticket.IssueDetails,
+            priority: ticket.priority,
+            status: ticket.Status,
+            createdTime: toIst(ticket.CreatedTime)
+          },
+          ticket.EngineerEmail
+        );
+        sentTicketIds.push(ticket.TicketID);
+      } catch (error) {
+        console.error(`SLA email failed for ${ticket.TicketNo}:`, error.message);
+      }
     }
 
-    // Mark all escalated tickets in one query
-    if (escalatedIds.size > 0) {
-      const ids = [...escalatedIds];
+    if (sentTicketIds.length) {
       await pool.query(
         `UPDATE public."Tickets" SET "EscalationSent" = true WHERE "TicketID" = ANY($1)`,
-        [ids]
+        [sentTicketIds]
       );
-      console.log(`✅ Escalated ${ids.length} ticket(s) to managers`);
+      console.log(`SLA escalation emailed for ${sentTicketIds.length} ticket(s)`);
     }
-
-  } catch (err) {
-    console.error('❌ Escalation check error:', err.message);
+  } catch (error) {
+    console.error("Escalation check error:", error.message);
   }
-};
+}
 
-// ─── Start Cron ──────────────────────────────────────────────────────────────
-const startEscalationJob = () => {
-  console.log('🕐 Escalation job started — runs every 5 minutes');
-
-  // Every 5 minutes
-  cron.schedule('*/5 * * * *', async () => {
-    console.log(`\n🔄 [${toIst(new Date())}] Running ticket checks...`);
+function startEscalationJob() {
+  console.log("Email reminder and SLA job started - runs every 5 minutes");
+  cron.schedule("*/5 * * * *", async () => {
     await checkReminders();
     await checkEscalations();
   });
-};
+}
 
-module.exports = { startEscalationJob };
+module.exports = { checkEscalations, checkReminders, startEscalationJob };

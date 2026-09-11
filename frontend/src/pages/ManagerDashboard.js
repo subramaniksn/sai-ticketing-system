@@ -167,6 +167,14 @@ const td = { padding: "12px", fontSize: "14px" };
 
 // ── Ticket Detail Modal (matches Dispatcher card style) ───────────────────
 function TicketModal({ ticket, onClose }) {
+  const [workUpdates, setWorkUpdates] = useState([]);
+  useEffect(() => {
+    if (!ticket) return;
+    const token = localStorage.getItem("token");
+    API.get(`/tickets/ticket/${ticket.TicketID}/comments`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(res => setWorkUpdates(res.data || []))
+      .catch(() => setWorkUpdates([]));
+  }, [ticket]);
   if (!ticket) return null;
 
   const priorityColor =
@@ -248,6 +256,9 @@ function TicketModal({ ticket, onClose }) {
         {ticket.CreatedTime && (
           <div style={timestampStyle}>🕒 Created: {formatIstDate(ticket.CreatedTime)}</div>
         )}
+        {ticket.RemoteConnectionScheduledAt && (
+          <div style={timestampStyle}>🖥️ Remote Connection: {formatIstDate(ticket.RemoteConnectionScheduledAt)}</div>
+        )}
         {ticket.InProgress_Date && (
           <div style={timestampStyle}>🚀 Started: {formatIstDate(ticket.InProgress_Date)}</div>
         )}
@@ -273,6 +284,15 @@ function TicketModal({ ticket, onClose }) {
             <span style={{ fontSize: "15px", color: "#2c3e50", lineHeight: "1.6" }}>{ticket.Remark}</span>
           </div>
         )}
+
+        <div style={issueRowStyle}>
+          <span style={{ fontSize: "13px", color: "#6c757d", fontWeight: "700" }}>Engineer work updates:</span>
+          {workUpdates.length ? workUpdates.map(update => (
+            <div key={update.CommentID} style={{ padding: "10px", background: "#f8fafc", borderLeft: "3px solid #1976d2", borderRadius: "6px" }}>
+              <strong>{update.UpdateType}</strong> · {formatIstDate(update.CreatedAt)}<br />{update.Comment}
+            </div>
+          )) : <span style={{ color: "#6c757d" }}>No work updates yet.</span>}
+        </div>
 
         {/* Resolution */}
         {ticket.Resolution && (
@@ -317,6 +337,7 @@ export default function ManagerDashboard() {
   });
 
   const [notifySending, setNotifySending] = useState(false);
+  const [sentNotifications, setSentNotifications] = useState([]);
 
   const loadTickets = useCallback(async () => {
     try {
@@ -381,6 +402,18 @@ export default function ManagerDashboard() {
 
   const handleLogout = () => { localStorage.clear(); window.location.href = "/"; };
 
+  const loadSentNotifications = useCallback(async () => {
+    try {
+      const token = localStorage.getItem("token");
+      const res = await API.get("/tickets/manager-notifications/mine", {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setSentNotifications(res.data || []);
+    } catch {
+      setSentNotifications([]);
+    }
+  }, []);
+
   const sendNotification = async () => {
     const payload = {
       ...notifyForm,
@@ -399,6 +432,7 @@ export default function ManagerDashboard() {
       alert("✅ Notification sent to Dispatcher!");
       setNotifyForm({ customerName: "", siteName: "", issueDetails: "", priority: "Medium" });
       setShowNotifyForm(false);
+      loadSentNotifications();
     } catch (err) {
       alert("❌ " + (err.response?.data?.msg || "Failed to send notification"));
     } finally {
@@ -406,7 +440,7 @@ export default function ManagerDashboard() {
     }
   };
 
-  useEffect(() => { loadTickets(); }, [loadTickets]);
+  useEffect(() => { loadTickets(); loadSentNotifications(); }, [loadTickets, loadSentNotifications]);
 
   const summary = (() => {
     const now = new Date();
@@ -564,6 +598,17 @@ export default function ManagerDashboard() {
     </div>
   )}
 </div>
+      <div style={{ padding: "15px", background: "white", borderRadius: "10px", margin: "15px", border: "1px solid #e2e8f0" }}>
+        <h3 style={{ margin: "0 0 10px" }}>📬 My dispatcher alerts</h3>
+        {sentNotifications.length === 0 ? <span style={{ color: "#6b7280" }}>No alerts sent yet.</span> : sentNotifications.map(alert => (
+          <div key={alert.NotificationID} style={{ padding: "10px 0", borderTop: "1px solid #eef2f7", display: "flex", justifyContent: "space-between", gap: "12px" }}>
+                        <span><strong>{alert.CustomerName} — {alert.SiteName}</strong><br /><small>{alert.IssueDetails} · {formatIstDate(alert.CreatedAt)}{alert.TicketProgress && <> · <strong>{alert.TicketProgress}</strong></>}</small></span>
+            <span style={{ alignSelf: "center", padding: "4px 10px", borderRadius: "12px", color: "white", background: alert.Status === "done" ? "#16a34a" : "#f59e0b", fontWeight: "700", fontSize: "12px" }}>
+              {alert.Status === "done" ? "Completed" : "Waiting for dispatcher"}
+            </span>
+          </div>
+        ))}
+      </div>
       {/* LOGOUT CONFIRM */}
       {showLogoutConfirm && (
         <div style={{
