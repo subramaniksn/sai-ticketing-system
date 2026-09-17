@@ -442,6 +442,12 @@ export default function ManagerDashboard() {
 
   useEffect(() => { loadTickets(); loadSentNotifications(); }, [loadTickets, loadSentNotifications]);
 
+  // Show dispatcher/engineer progress for manager-created alerts without a manual refresh.
+  useEffect(() => {
+    const refreshNotifications = window.setInterval(loadSentNotifications, 30000);
+    return () => window.clearInterval(refreshNotifications);
+  }, [loadSentNotifications]);
+
   const summary = (() => {
     const now = new Date();
     const oneWeekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
@@ -521,6 +527,9 @@ export default function ManagerDashboard() {
       {/* DOWNLOAD PANEL */}
       <div style={styles.downloadPanel}>
         <h2 style={styles.downloadTitle}>📥 Download Ticket Report</h2>
+        <p style={{ margin: "-10px 0 18px", color: "#64748b", fontSize: "14px" }}>
+          The CSV includes each ticket’s work updates and comments.
+        </p>
         <div style={styles.filterRow}>
           <div style={styles.filterGroup}>
             <label style={styles.filterLabel}>Start Date</label>
@@ -602,9 +611,14 @@ export default function ManagerDashboard() {
         <h3 style={{ margin: "0 0 10px" }}>📬 My dispatcher alerts</h3>
         {sentNotifications.length === 0 ? <span style={{ color: "#6b7280" }}>No alerts sent yet.</span> : sentNotifications.map(alert => (
           <div key={alert.NotificationID} style={{ padding: "10px 0", borderTop: "1px solid #eef2f7", display: "flex", justifyContent: "space-between", gap: "12px" }}>
-                        <span><strong>{alert.CustomerName} — {alert.SiteName}</strong><br /><small>{alert.IssueDetails} · {formatIstDate(alert.CreatedAt)}{alert.TicketProgress && <> · <strong>{alert.TicketProgress}</strong></>}</small></span>
-            <span style={{ alignSelf: "center", padding: "4px 10px", borderRadius: "12px", color: "white", background: alert.Status === "done" ? "#16a34a" : "#f59e0b", fontWeight: "700", fontSize: "12px" }}>
-              {alert.Status === "done" ? "Completed" : "Waiting for dispatcher"}
+            <span>
+              <strong>{alert.CustomerName} — {alert.SiteName}</strong><br />
+              <small>{alert.IssueDetails} · {formatIstDate(alert.CreatedAt)}</small>
+              {alert.TicketNo && <><br /><small><strong>Ticket:</strong> {alert.TicketNo} · <strong>Engineer:</strong> {alert.AssignedTo?.split('@')[0] || "Not assigned"}</small></>}
+              {alert.TicketProgress && <><br /><small><strong>{alert.TicketProgress}</strong></small></>}
+            </span>
+            <span style={{ alignSelf: "center", padding: "4px 10px", borderRadius: "12px", color: "white", background: alert.TicketStatus === "Resolved" || alert.Status === "done" ? "#16a34a" : alert.TicketStatus === "Pending" ? "#f59e0b" : "#1976d2", fontWeight: "700", fontSize: "12px" }}>
+              {alert.TicketStatus || (alert.Status === "done" ? "Completed" : "Waiting for dispatcher")}
             </span>
           </div>
         ))}

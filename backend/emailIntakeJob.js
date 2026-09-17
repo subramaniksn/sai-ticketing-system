@@ -165,8 +165,8 @@ function createEmailIntakeJob({
         `INSERT INTO "Tickets"
          ("TicketNo", "CustomerName", "SiteName", "IssueDetails", "priority",
           "AssignedTo", "AmcCustomerId", "TicketType", "Status",
-          "ReminderSent", "EscalationSent", "RemoteConnectionScheduledAt")
-         VALUES ($1, $2, 'Email Request', $3, $4, $5, NULL, 'EMAIL', 'Open', false, false, $6)
+          "ReminderSent", "EscalationSent", "OneHourAlertSent", "RemoteConnectionScheduledAt")
+         VALUES ($1, $2, 'Email Request', $3, $4, $5, NULL, 'EMAIL', 'Open', false, false, false, $6)
          RETURNING "TicketID"`,
         [ticketNo, customerName, issueDetails, priority, engineerEmail, remoteConnectionScheduledAt]
       );
@@ -187,6 +187,7 @@ function createEmailIntakeJob({
         siteName: "Email Request",
         issueDetails,
         priority,
+        ticketType: "EMAIL",
         createdTime: toIst(createdAt),
         remoteConnectionScheduledAt: toIst(remoteConnectionScheduledAt)
       };

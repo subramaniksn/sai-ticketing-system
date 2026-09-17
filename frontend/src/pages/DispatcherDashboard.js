@@ -453,6 +453,10 @@ export default function DispatcherDashboard() {
   );
 
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
+  const [reportLoading, setReportLoading] = useState(false);
+  const [reportStartDate, setReportStartDate] = useState("");
+  const [reportEndDate, setReportEndDate] = useState("");
+  const [reportCustomer, setReportCustomer] = useState("all");
 
   const [form, setForm] = useState({
     customerName: "",
@@ -508,13 +512,56 @@ export default function DispatcherDashboard() {
       const res = await API.get("/tickets/all", {
         headers: { Authorization: `Bearer ${token}` }
       });
-      setTickets(res.data || []);
+      const loadedTickets = Array.isArray(res.data) ? res.data : [];
+      setTickets(loadedTickets);
     } catch (err) {
       console.error("Tickets load error:", err);
     } finally {
       setLoading(false);
     }
   }, []);
+
+  const reportCustomers = useMemo(
+    () => Array.from(new Set(tickets.map((ticket) => ticket.CustomerName).filter(Boolean))).sort(),
+    [tickets]
+  );
+
+  const handleReportDownload = async () => {
+    if (!reportStartDate || !reportEndDate) return alert("Please select both start and end dates");
+    if (reportStartDate > reportEndDate) return alert("Start date cannot be after end date");
+    try {
+      setReportLoading(true);
+      const token = localStorage.getItem("token");
+      const res = await API.get("/tickets/download", {
+        params: {
+          startDate: reportStartDate,
+          endDate: reportEndDate,
+          customer: reportCustomer === "all" ? "" : reportCustomer
+        },
+        headers: { Authorization: `Bearer ${token}` },
+        responseType: "blob"
+      });
+      const url = window.URL.createObjectURL(new Blob([res.data], { type: "text/csv" }));
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `SAI_Tickets_${reportStartDate}_to_${reportEndDate}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      let message = "Download failed";
+      if (err.response?.data instanceof Blob) {
+        const text = await err.response.data.text();
+        try { message = JSON.parse(text).msg || message; } catch { message = text || message; }
+      } else if (err.response?.data?.msg) {
+        message = err.response.data.msg;
+      }
+      alert(`❌ ${message}`);
+    } finally {
+      setReportLoading(false);
+    }
+  };
 
 
 const loadManagerNotifications = async () => {
@@ -1161,6 +1208,39 @@ const td = {
               🚪 Logout
             </button>
           </div>
+        </div>
+      </div>
+
+      <div style={{
+        background: "white", padding: "20px", borderRadius: "16px", marginBottom: "24px",
+        boxShadow: "0 4px 20px rgba(0,0,0,0.08)", border: "1px solid #e2e8f0"
+      }}>
+        <h2 style={{ margin: "0 0 16px", fontSize: "20px", color: "#1e293b" }}>📥 Download Ticket Report</h2>
+        <p style={{ margin: "0 0 16px", color: "#64748b", fontSize: "14px" }}>
+          The CSV includes each ticket’s work updates and comments.
+        </p>
+        <div style={{ display: "flex", gap: "12px", flexWrap: "wrap", alignItems: "end" }}>
+          <label style={{ display: "grid", gap: "6px", fontWeight: "600", fontSize: "14px" }}>
+            Start Date
+            <input type="date" value={reportStartDate} onChange={(e) => setReportStartDate(e.target.value)}
+              max={reportEndDate || new Date().toISOString().split("T")[0]} style={{ ...styles.input, padding: "10px" }} />
+          </label>
+          <label style={{ display: "grid", gap: "6px", fontWeight: "600", fontSize: "14px" }}>
+            End Date
+            <input type="date" value={reportEndDate} onChange={(e) => setReportEndDate(e.target.value)}
+              min={reportStartDate} max={new Date().toISOString().split("T")[0]} style={{ ...styles.input, padding: "10px" }} />
+          </label>
+          <label style={{ display: "grid", gap: "6px", fontWeight: "600", fontSize: "14px", minWidth: "220px" }}>
+            Customer
+            <select value={reportCustomer} onChange={(e) => setReportCustomer(e.target.value)} style={{ ...styles.input, padding: "10px" }}>
+              <option value="all">All Customers</option>
+              {reportCustomers.map((customer) => <option key={customer} value={customer}>{customer}</option>)}
+            </select>
+          </label>
+          <button onClick={handleReportDownload} disabled={!reportStartDate || !reportEndDate || reportLoading}
+            style={{ ...styles.createButton, padding: "12px 20px", opacity: (!reportStartDate || !reportEndDate || reportLoading) ? 0.6 : 1 }}>
+            {reportLoading ? "⏳ Downloading..." : "📊 Download CSV"}
+          </button>
         </div>
       </div>
 

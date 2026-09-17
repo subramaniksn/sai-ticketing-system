@@ -161,6 +161,7 @@ function createEmailService({ fetchImpl = global.fetch, env = process.env } = {}
         <p><strong>Ticket:</strong> ${escapeHtml(ticket.ticketNo)}<br>
         <strong>Customer:</strong> ${escapeHtml(ticket.customerName)}<br>
         <strong>Site:</strong> ${escapeHtml(ticket.siteName)}<br>
+        <strong>Ticket type:</strong> ${escapeHtml(ticket.ticketType || "NON_AMC")}<br>
         <strong>Priority:</strong> ${escapeHtml(ticket.priority)}<br>
         <strong>Created:</strong> ${escapeHtml(ticket.createdTime)} IST${remoteSchedule}</p>
         <p><strong>Issue</strong><br>${escapeHtml(ticket.issueDetails).replaceAll("\n", "<br>")}</p>

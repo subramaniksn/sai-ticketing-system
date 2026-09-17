@@ -35,6 +35,39 @@ async function ensureTicketCommentsTable() {
   )`);
 }
 
+// Keep the manager who raised an alert informed without interrupting ticket work
+// if a WhatsApp delivery is temporarily unavailable.
+async function updateLinkedManagerNotification(sourceNotificationId, progress, whatsappMessage) {
+  if (!sourceNotificationId) return;
+  try {
+    const notification = await pool.query(
+      `UPDATE "ManagerNotifications"
+       SET "TicketProgress" = $1
+       WHERE "NotificationID" = $2
+       RETURNING "SentBy"`,
+      [progress, sourceNotificationId]
+    );
+    const managerEmail = notification.rows[0]?.SentBy;
+    if (!managerEmail) return;
+
+    const manager = await pool.query(
+      `SELECT "Phone" FROM "Users" WHERE "Email" = $1`, [managerEmail]
+    );
+    if (manager.rows[0]?.Phone) {
+      await sendManagerWhatsApp(manager.rows[0].Phone, whatsappMessage);
+    }
+  } catch (error) {
+    console.error("Linked manager notification error:", error.message);
+  }
+}
+
+function displayNameFromEmail(email) {
+  const localPart = String(email || "").split("@")[0];
+  return localPart
+    .replace(/[._-]+/g, " ")
+    .replace(/\b\w/g, (letter) => letter.toUpperCase()) || "Engineer";
+}
+
 // ✅ Generate Ticket No Function (PostgreSQL)
 async function generateTicketNo() {
   const now = new Date();
@@ -96,8 +129,8 @@ router.post("/create", verifyToken, async (req, res) => {
           `INSERT INTO "Tickets"
           ("TicketNo","CustomerName","SiteName","IssueDetails","priority",
             "AssignedTo","AmcCustomerId","TicketType","Status",
-            "ReminderSent","EscalationSent","SourceNotificationId")
-          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'Open',false,false,$9)`,
+            "ReminderSent","EscalationSent","OneHourAlertSent","SourceNotificationId")
+          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'Open',false,false,false,$9)`,
           [
             ticketNo,
             customerName,
@@ -110,6 +143,18 @@ router.post("/create", verifyToken, async (req, res) => {
             sourceNotificationId || null
           ]
         );
+
+    await updateLinkedManagerNotification(
+      sourceNotificationId,
+      `Assigned to ${displayNameFromEmail(assignedTo)}`,
+      `📌 *Ticket Assigned*\n\n` +
+      `🎟️ Ticket: ${ticketNo}\n` +
+      `🏢 Customer: ${customerName}\n` +
+      `📍 Site: ${siteName}\n` +
+      `📋 Issue: ${issueDetails}\n\n` +
+      `👷 Assigned engineer: ${displayNameFromEmail(assignedTo)}\n` +
+      `📧 Engineer email: ${assignedTo}`
+    );
 
 // Fetch the engineer and notify them on WhatsApp.
 try {
@@ -138,6 +183,7 @@ try {
       `🎟️ Ticket No: *${ticketNo}*\n` +
       `🏢 Customer: *${customerName}*\n` +
       `📍 Site: *${siteName}*\n` +
+      `🗂️ Ticket Type: *${ticketType || "NON_AMC"}*\n` +
       `⚠️ Priority: *${priority || "Medium"}*\n` +
       `🕒 Created: *${createdAt}* (IST)\n\n` +
       `📋 Issue:\n${issueDetails}\n\n` +
@@ -346,7 +392,8 @@ router.put("/resolve/:id", verifyToken, async (req, res) => {
           "Remark"=$1
       WHERE "TicketID"=$2
         AND "AssignedTo"=$3
-        AND "Status" IN ('InProgress','Pending')`,
+        AND "Status" IN ('InProgress','Pending')
+      RETURNING "TicketNo", "CustomerName", "SiteName", "IssueDetails", "SourceNotificationId"`,
       [remark, ticketId, req.user.email]
     );
 
@@ -359,6 +406,18 @@ router.put("/resolve/:id", verifyToken, async (req, res) => {
       `INSERT INTO "TicketComments" ("TicketID", "Comment", "UpdateType", "CreatedBy")
        VALUES ($1, $2, 'Resolved', $3)`,
       [ticketId, remark.trim(), req.user.email]
+    );
+
+    const resolvedTicket = result.rows[0];
+    await updateLinkedManagerNotification(
+      resolvedTicket.SourceNotificationId,
+      `Resolved by ${displayNameFromEmail(req.user.email)}`,
+      `✅ *Ticket Resolved*\n\n` +
+      `🎟️ Ticket: ${resolvedTicket.TicketNo}\n` +
+      `🏢 Customer: ${resolvedTicket.CustomerName}\n` +
+      `📍 Site: ${resolvedTicket.SiteName}\n` +
+      `📋 Issue: ${resolvedTicket.IssueDetails}\n\n` +
+      `👷 Completed by: ${displayNameFromEmail(req.user.email)}`
     );
 
     res.json({ msg: "Ticket Resolved Successfully ✅" });
@@ -422,9 +481,10 @@ const { Parser } = require('json2csv');
 
 router.get("/download", verifyToken, async (req, res) => {
   try {
-    if (req.user.role !== "Manager") {
-      return res.status(403).json({ msg: "Only Managers can download ticket reports" });
+    if (!['Manager', 'Dispatcher'].includes(req.user.role)) {
+      return res.status(403).json({ msg: "Only Managers and Dispatchers can download ticket reports" });
     }
+    await ensureTicketCommentsTable();
 
     const { startDate, endDate } = req.query;
     const validDate = value => {
@@ -460,8 +520,19 @@ router.get("/download", verifyToken, async (req, res) => {
 	COALESCE(("Resolved_Date"::timestamptz AT TIME ZONE 'Asia/Kolkata')::text, '') as "Resolved_Date",
         "priority",
         COALESCE("AmcCustomerId"::text, '') as "AmcCustomerId",
-        "TicketType"
-      FROM "Tickets"
+        "TicketType",
+        COALESCE(comments."WorkUpdates", '') AS "WorkUpdates"
+      FROM "Tickets" t
+      LEFT JOIN LATERAL (
+        SELECT string_agg(
+          concat(
+            to_char(c."CreatedAt" AT TIME ZONE 'Asia/Kolkata', 'YYYY-MM-DD HH24:MI'),
+            ' | ', c."UpdateType", ' | ', c."CreatedBy", ' | ', c."Comment"
+          ), E'\n' ORDER BY c."CreatedAt"
+        ) AS "WorkUpdates"
+        FROM "TicketComments" c
+        WHERE c."TicketID" = t."TicketID"
+      ) comments ON true
       WHERE 1=1
     `;
 
@@ -469,7 +540,7 @@ router.get("/download", verifyToken, async (req, res) => {
     let paramIndex = 1;
 
     if (startDate && endDate) {
-      query += ` AND ("CreatedTime"::timestamptz AT TIME ZONE 'Asia/Kolkata')::date
+      query += ` AND (t."CreatedTime"::timestamptz AT TIME ZONE 'Asia/Kolkata')::date
                      BETWEEN $${paramIndex}::date AND $${paramIndex + 1}::date`;
       params.push(startDate);
       params.push(endDate);
@@ -483,12 +554,12 @@ router.get("/download", verifyToken, async (req, res) => {
       return res.status(400).json({ msg: "Customer filter is too long" });
     }
     if (req.query.customer && req.query.customer !== '') {
-      query += ` AND lower(btrim("CustomerName")) = lower($${paramIndex})`;
+      query += ` AND lower(btrim(t."CustomerName")) = lower($${paramIndex})`;
       params.push(req.query.customer.trim());
       paramIndex++;
     }
 
-    query += ` ORDER BY "CreatedTime" DESC`;
+    query += ` ORDER BY t."CreatedTime" DESC`;
 
     const result = await pool.query(query, params);
 
@@ -520,7 +591,7 @@ router.put("/reassign/:id", verifyToken, async (req, res) => {
 
     // ✅ Get ticket details before update
     const ticketRes = await pool.query(
-      `SELECT "TicketNo", "CustomerName", "SiteName", "IssueDetails", "priority"
+      `SELECT "TicketNo", "CustomerName", "SiteName", "IssueDetails", "priority", "TicketType"
        FROM "Tickets" WHERE "TicketID" = $1`,
       [req.params.id]
     );
@@ -528,8 +599,12 @@ router.put("/reassign/:id", verifyToken, async (req, res) => {
     await pool.query(
       `UPDATE "Tickets"
        SET "AssignedTo" = $1,
+           "Status" = 'Open',
+           "InProgress_Date" = NULL,
+           "Pending_Date" = NULL,
            "ReminderSent" = false,
-           "EscalationSent" = false
+           "EscalationSent" = false,
+           "OneHourAlertSent" = false
        WHERE "TicketID" = $2`,
       [assignedTo, req.params.id]
     );
@@ -544,9 +619,28 @@ router.put("/reassign/:id", verifyToken, async (req, res) => {
       const ticket = ticketRes.rows[0];
 
       if (engineer?.Phone && ticket) {
+        const reassignedAt = new Date().toLocaleString("en-IN", {
+          timeZone: "Asia/Kolkata",
+          hour12: true,
+          year: "numeric",
+          month: "short",
+          day: "2-digit",
+          hour: "2-digit",
+          minute: "2-digit"
+        });
         sendManagerWhatsApp(
           engineer.Phone,
-          `🔄 Ticket Reassigned: ${ticket.TicketNo}\nCustomer: ${ticket.CustomerName}\nSite: ${ticket.SiteName}\nPriority: ${ticket.priority}\nIssue: ${ticket.IssueDetails}`
+          `🎫 *Ticket Reassigned — SAI Automation*\n\n` +
+          `👤 Engineer: *${String(assignedTo || "").split("@")[0]}*\n` +
+          `🎟️ Ticket No: *${ticket.TicketNo}*\n` +
+          `🏢 Customer: *${ticket.CustomerName}*\n` +
+          `📍 Site: *${ticket.SiteName}*\n` +
+          `🗂️ Ticket Type: *${ticket.TicketType || "NON_AMC"}*\n` +
+          `⚠️ Priority: *${ticket.priority}*\n` +
+          `🕒 Reassigned: *${reassignedAt}* (IST)\n\n` +
+          `📋 Issue:\n${ticket.IssueDetails}\n\n` +
+          `🔐 Login & take action:\nhttps://ticket.saiautomation.co.in\n\n` +
+          `⏰ Please start within 20 minutes to avoid escalation.`
         ).catch(err => console.error('Reassignment WhatsApp error:', err.message));
 
         console.log(`Reassignment WhatsApp queued for ${assignedTo}`);
@@ -670,9 +764,19 @@ router.get("/manager-notifications/mine", verifyToken, async (req, res) => {
   if (req.user.role !== "Manager") return res.status(403).json({ msg: "Only Manager allowed" });
   try {
     const result = await pool.query(
-      `SELECT "NotificationID", "CustomerName", "SiteName", "IssueDetails", "Priority", "SentBy", "Status", "TicketProgress",
-              "CreatedAt"::timestamptz AT TIME ZONE 'Asia/Kolkata' AS "CreatedAt"
-       FROM "ManagerNotifications" WHERE "SentBy" = $1 ORDER BY "CreatedAt" DESC`,
+      `SELECT n."NotificationID", n."CustomerName", n."SiteName", n."IssueDetails", n."Priority", n."SentBy", n."Status", n."TicketProgress",
+              n."CreatedAt"::timestamptz AT TIME ZONE 'Asia/Kolkata' AS "CreatedAt",
+              t."TicketNo", t."AssignedTo", t."Status" AS "TicketStatus"
+       FROM "ManagerNotifications" n
+       LEFT JOIN LATERAL (
+         SELECT "TicketNo", "AssignedTo", "Status"
+         FROM "Tickets"
+         WHERE "SourceNotificationId" = n."NotificationID"
+         ORDER BY "CreatedTime" DESC
+         LIMIT 1
+       ) t ON true
+       WHERE n."SentBy" = $1
+       ORDER BY n."CreatedAt" DESC`,
       [req.user.email]
     );
     return res.json(result.rows);
