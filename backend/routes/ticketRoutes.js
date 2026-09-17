@@ -111,51 +111,60 @@ router.post("/create", verifyToken, async (req, res) => {
           ]
         );
 
-    // Fetch the engineer and send the assignment email.
-    try {
-      const engRes = await pool.query(
-        `SELECT "Email" FROM public."Users" WHERE "Email" = $1`,
-        [assignedTo]
-      );
-      const engineer = engRes.rows[0];
+// Fetch the engineer and notify them on WhatsApp.
+try {
+  const engRes = await pool.query(
+    `SELECT "Phone" FROM public."Users" WHERE "Email" = $1`,
+    [assignedTo]
+  );
 
-      if (engineer?.Email) {
-        const createdTimeIST = new Date().toLocaleString('en-IN', {
-          timeZone: 'Asia/Kolkata',
-          hour12: true,
-          year: 'numeric', month: 'short', day: '2-digit',
-          hour: '2-digit', minute: '2-digit'
-        });
+  const engineer = engRes.rows[0];
 
-        // Fire-and-forget — never blocks the API response
-        notifyEngineerTicketAssigned(
-          engineer.Email,
-          {
-            ticketNo,
-            customerName,
-            siteName,
-            issueDetails,
-            priority: priority || 'Medium',
-            createdTime: createdTimeIST
-          }
-        ).catch(err => console.error('Assignment email error:', err.message));
+  if (engineer?.Phone) {
+    const createdAt = new Date().toLocaleString("en-IN", {
+      timeZone: "Asia/Kolkata",
+      hour12: true,
+      year: "numeric",
+      month: "short",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit"
+    });
 
-      } else {
-        console.warn(`Engineer email not found for ${assignedTo}; assignment email skipped`);
-      }
-    } catch (emailError) {
-      // Email failure must never break ticket creation.
-      console.error('Assignment email lookup error:', emailError.message);
-    }
-
-    res.json({ msg: "Ticket Created Successfully", ticketNo });
-
-  } catch (err) {
-    console.error("Create ticket error:", err);
-    res.status(500).json({ msg: "Server Error" });
+    sendManagerWhatsApp(
+      engineer.Phone,
+      `🎫 *New Ticket Assigned — SAI Automation*\n\n` +
+      `👤 Engineer: *${String(assignedTo || "").split("@")[0]}*\n` +
+      `🎟️ Ticket No: *${ticketNo}*\n` +
+      `🏢 Customer: *${customerName}*\n` +
+      `📍 Site: *${siteName}*\n` +
+      `⚠️ Priority: *${priority || "Medium"}*\n` +
+      `🕒 Created: *${createdAt}* (IST)\n\n` +
+      `📋 Issue:\n${issueDetails}\n\n` +
+      `🔐 Login & take action:\nhttps://ticket.saiautomation.co.in\n\n` +
+      `⏰ Please start within 20 minutes to avoid escalation.`
+    ).catch(err =>
+      console.error("Engineer WhatsApp notify error:", err.message)
+    );
+  } else {
+    console.warn(
+      `Engineer phone not found for ${assignedTo}; WhatsApp notify skipped`
+    );
   }
-});
+} catch (notifyError) {
+  console.error(
+    "Assignment WhatsApp lookup error:",
+    notifyError.message
+  );
+}
 
+res.json({ msg: "Ticket Created Successfully", ticketNo });
+
+} catch (err) {
+  console.error("Create ticket error:", err);
+  res.status(500).json({ msg: "Server Error" });
+}
+});
 
 // ✅ Dispatcher View All Tickets
 router.get("/all", verifyToken, async (req, res) => {
@@ -525,39 +534,27 @@ router.put("/reassign/:id", verifyToken, async (req, res) => {
       [assignedTo, req.params.id]
     );
 
-    // Send an email to the newly assigned engineer.
+        // Notify the newly assigned engineer on WhatsApp.
     try {
       const engRes = await pool.query(
-        `SELECT "Email" FROM public."Users" WHERE "Email" = $1`,
+        `SELECT "Phone" FROM public."Users" WHERE "Email" = $1`,
         [assignedTo]
       );
       const engineer = engRes.rows[0];
       const ticket = ticketRes.rows[0];
 
-      if (engineer?.Email && ticket) {
-        const assignedTimeIST = new Date().toLocaleString('en-IN', {
-          timeZone: 'Asia/Kolkata',
-          hour12: true,
-          year: 'numeric', month: 'short', day: '2-digit',
-          hour: '2-digit', minute: '2-digit'
-        });
+      if (engineer?.Phone && ticket) {
+        sendManagerWhatsApp(
+          engineer.Phone,
+          `🔄 Ticket Reassigned: ${ticket.TicketNo}\nCustomer: ${ticket.CustomerName}\nSite: ${ticket.SiteName}\nPriority: ${ticket.priority}\nIssue: ${ticket.IssueDetails}`
+        ).catch(err => console.error('Reassignment WhatsApp error:', err.message));
 
-        notifyEngineerTicketAssigned(
-          engineer.Email,
-          {
-            ticketNo: ticket.TicketNo,
-            customerName: ticket.CustomerName,
-            siteName: ticket.SiteName,
-            issueDetails: ticket.IssueDetails,
-            priority: ticket.priority,
-            createdTime: assignedTimeIST
-          }
-        ).catch(err => console.error('Reassignment email error:', err.message));
-
-        console.log(`Reassignment email queued for ${assignedTo}`);
+        console.log(`Reassignment WhatsApp queued for ${assignedTo}`);
+      } else {
+        console.warn(`Engineer phone not found for ${assignedTo}; reassignment WhatsApp skipped`);
       }
-    } catch (emailError) {
-      console.error('Reassignment email error:', emailError.message);
+    } catch (notifyError) {
+      console.error('Reassignment WhatsApp lookup error:', notifyError.message);
     }
 
     res.json({ msg: "✅ Ticket reassigned successfully" });
@@ -611,35 +608,36 @@ router.post("/manager-notify", verifyToken, async (req, res) => {
       [customerName, siteName, issueDetails, priority, req.user.email]
     );
 
-    // Send the manager alert to all dispatchers by email.
+        // Send the manager alert to all dispatchers on WhatsApp.
     try {
       const dispatcherRes = await pool.query(
-        `SELECT "Email" FROM public."Users" WHERE "Role" = 'Dispatcher'`
+        `SELECT "Phone" FROM public."Users" WHERE "Role" = 'Dispatcher'`
       );
 
-      const dispatcherEmails = dispatcherRes.rows
-        .map((dispatcher) => dispatcher.Email)
+      const dispatcherPhones = dispatcherRes.rows
+        .map((dispatcher) => dispatcher.Phone)
         .filter(Boolean);
 
-      if (dispatcherEmails.length) {
-        await notifyDispatcherManagerAlert(dispatcherEmails, {
-          sentBy: req.user.email,
-          customerName,
-          siteName,
-          priority,
-          issueDetails
-        });
-        console.log("Manager alert emailed to dispatchers");
+      if (dispatcherPhones.length) {
+        await Promise.all(
+          dispatcherPhones.map((phone) =>
+            sendManagerWhatsApp(
+              phone,
+              `📢 Manager Alert from ${req.user.email}\nCustomer: ${customerName}\nSite: ${siteName}\nPriority: ${priority}\nIssue: ${issueDetails}`
+            )
+          )
+        );
+        console.log("Manager alert sent to dispatchers via WhatsApp");
       } else {
-        console.log("Dispatcher email not found");
+        console.log("Dispatcher phone not found");
       }
 
-    } catch (emailError) {
-      console.error("Manager alert email error:", emailError.message);
+    } catch (whatsappError) {
+      console.error("Manager alert WhatsApp error:", whatsappError.message);
     }
 
     res.status(201).json({ msg: "✅ Notification sent to Dispatcher!" });
-
+    
   } catch (err) {
     console.error(err);
     res.status(500).json({ msg: "Failed to send notification" });

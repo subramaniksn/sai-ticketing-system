@@ -84,3 +84,13 @@ backend/dist/
 backend/.env
 backend/*.log
 backend/auth_info_baileys
+# WhatsApp Baileys authentication/session data and backups
+backend/auth_info_baileys/
+backend/auth_info_baileys_*/
+backend/auth_info_baileys_backup_*/
+
+# Backup and temporary JavaScript files
+*.bak
+*.backup
+*.backup_*
+*_backup_*

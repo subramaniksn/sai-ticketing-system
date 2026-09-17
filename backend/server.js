@@ -32,10 +32,15 @@ const PORT = process.env.PORT || 5001;
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`✅ Ticketing Server running on port ${PORT}`);
 
+  // WhatsApp reminder and SLA escalation should always run
+  startEscalationJob();
+
+  // Microsoft email automation is optional
   if (emailService.isConfigured()) {
-    startEscalationJob();
     createEmailIntakeJob().start();
   } else {
-    console.warn("Microsoft email automation disabled: complete the MS_* and SUPPORT_MAILBOX settings");
+    console.warn(
+      "Microsoft email automation disabled: complete the MS_* and SUPPORT_MAILBOX settings"
+    );
   }
 });
