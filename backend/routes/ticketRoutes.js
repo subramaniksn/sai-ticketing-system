@@ -428,6 +428,79 @@ router.put("/resolve/:id", verifyToken, async (req, res) => {
   }
 });
 
+// Dispatcher can reopen a resolved ticket when customer confirmation shows the issue remains.
+router.put("/reopen/:id", verifyToken, async (req, res) => {
+  if (req.user.role !== "Dispatcher") {
+    return res.status(403).json({ msg: "Only Dispatchers can reopen tickets" });
+  }
+
+  const ticketId = Number(req.params.id);
+  const reason = typeof req.body?.reason === "string" ? req.body.reason.trim() : "";
+  if (!Number.isInteger(ticketId) || ticketId <= 0) {
+    return res.status(400).json({ msg: "Invalid ticket ID" });
+  }
+  if (!reason) {
+    return res.status(400).json({ msg: "A reopening reason is required" });
+  }
+  if (reason.length > 2000) {
+    return res.status(400).json({ msg: "Reopening reason is too long" });
+  }
+
+  try {
+    const result = await pool.query(
+      `UPDATE "Tickets"
+       SET "Status" = 'Open',
+           "InProgress_Date" = NULL,
+           "Pending_Date" = NULL,
+           "Resolved_Date" = NULL,
+           "ResolvedTime" = NULL,
+           "Remark" = NULL,
+           "OneHourAlertSent" = false
+       WHERE "TicketID" = $1 AND "Status" = 'Resolved'
+       RETURNING "TicketNo", "CustomerName", "SiteName", "IssueDetails", "AssignedTo"`,
+      [ticketId]
+    );
+    if (!result.rowCount) {
+      return res.status(404).json({ msg: "Only resolved tickets can be reopened" });
+    }
+
+    await ensureTicketCommentsTable();
+    await pool.query(
+      `INSERT INTO "TicketComments" ("TicketID", "Comment", "UpdateType", "CreatedBy")
+       VALUES ($1, $2, 'Reopened', $3)`,
+      [ticketId, reason, req.user.email]
+    );
+
+    const ticket = result.rows[0];
+    let whatsappSent = false;
+    try {
+      const engineer = await pool.query(
+        `SELECT "Phone" FROM "Users" WHERE "Email" = $1`, [ticket.AssignedTo]
+      );
+      if (engineer.rows[0]?.Phone) {
+        const delivery = await sendManagerWhatsApp(
+          engineer.rows[0].Phone,
+          `🔄 *Ticket Reopened — Action Required*\n\n` +
+          `🎟️ Ticket: *${ticket.TicketNo}*\n` +
+          `🏢 Customer: *${ticket.CustomerName}*\n` +
+          `📍 Site: *${ticket.SiteName}*\n` +
+          `📋 Issue: ${ticket.IssueDetails}\n\n` +
+          `📝 Reopening reason from dispatcher:\n${reason}\n\n` +
+          `Please review the issue and start work again.`
+        );
+        whatsappSent = delivery.sent;
+      }
+    } catch (notifyError) {
+      console.error("Reopen WhatsApp notification error:", notifyError.message);
+    }
+
+    return res.json({ msg: "Ticket reopened and engineer notified", whatsappSent });
+  } catch (error) {
+    console.error("Reopen ticket error:", error);
+    return res.status(500).json({ msg: "Failed to reopen ticket" });
+  }
+});
+
 
 // ✅ Manager View All
 router.get("/escalated", verifyToken, async (req, res) => {

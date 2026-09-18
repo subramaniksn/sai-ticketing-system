@@ -1008,6 +1008,8 @@ useEffect(() => {
 
   const TicketCard = ({ ticket }) => {
   const [workUpdates, setWorkUpdates] = useState([]);
+  const [reopenReason, setReopenReason] = useState("");
+  const [reopening, setReopening] = useState(false);
   useEffect(() => {
     if (!ticket) return;
     const token = localStorage.getItem("token");
@@ -1050,10 +1052,11 @@ useEffect(() => {
 
         <select
           value={ticket.AssignedTo}
+          disabled={ticket.Status === "Resolved"}
           onChange={(e) =>
             handleReassign(ticket.TicketID, e.target.value)
           }
-          style={{ padding: "8px", borderRadius: "8px" }}
+          style={{ padding: "8px", borderRadius: "8px", opacity: ticket.Status === "Resolved" ? 0.6 : 1 }}
         >
           {engineers.map(e => (
             <option key={e} value={e}>
@@ -1115,6 +1118,32 @@ useEffect(() => {
         <span style={styles.issueText}>{ticket.Remark}</span>
       </div>
     )}
+    {ticket.Status === "Resolved" && (
+      <div style={{ marginTop: "18px", padding: "14px", background: "#fff7ed", border: "1px solid #fdba74", borderRadius: "10px" }}>
+        <strong style={{ color: "#9a3412" }}>Reopen this ticket</strong>
+        <p style={{ margin: "6px 0 10px", fontSize: "13px", color: "#7c2d12" }}>
+          Add the customer’s feedback or reason for reopening. The engineer will receive it on WhatsApp.
+        </p>
+        <textarea
+          value={reopenReason}
+          onChange={(event) => setReopenReason(event.target.value)}
+          placeholder="Why is this ticket being reopened?"
+          rows={3}
+          style={{ ...styles.textareaFull, minHeight: "72px", marginBottom: "10px" }}
+        />
+        <button
+          disabled={reopening || !reopenReason.trim()}
+          onClick={async () => {
+            setReopening(true);
+            await handleReopen(ticket.TicketID, reopenReason);
+            setReopening(false);
+          }}
+          style={{ padding: "9px 14px", background: "#ea580c", color: "white", border: "none", borderRadius: "7px", fontWeight: "700", cursor: reopening ? "not-allowed" : "pointer", opacity: reopening || !reopenReason.trim() ? 0.6 : 1 }}
+        >
+          {reopening ? "Reopening..." : "🔄 Reopen & Notify Engineer"}
+        </button>
+      </div>
+    )}
     <div style={styles.issueRow}>
       <span style={styles.issueLabel}>Engineer work updates:</span>
       {workUpdates.length ? workUpdates.map(update => (
@@ -1157,6 +1186,22 @@ const handleReassign = async (ticketId, newEngineer) => {
   } catch (err) {
     console.error(err);
     alert("❌ Failed to reassign");
+  }
+};
+
+const handleReopen = async (ticketId, reason) => {
+  try {
+    const token = localStorage.getItem("token");
+    const response = await API.put(`/tickets/reopen/${ticketId}`, { reason }, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    setSelectedTicket(null);
+    await loadTickets();
+    alert(response.data?.whatsappSent
+      ? "✅ Ticket reopened and engineer notified on WhatsApp"
+      : "✅ Ticket reopened. Engineer WhatsApp could not be delivered.");
+  } catch (err) {
+    alert(`❌ ${err.response?.data?.msg || "Failed to reopen ticket"}`);
   }
 };
 
@@ -2214,10 +2259,11 @@ const td = {
                     <td style={td}>
                       <select
                         value={ticket.AssignedTo}
+                        disabled={ticket.Status === "Resolved"}
                         onChange={(e) =>
                           handleReassign(ticket.TicketID, e.target.value)
                         }
-                        style={{ padding: "6px", borderRadius: "6px" }}
+                        style={{ padding: "6px", borderRadius: "6px", opacity: ticket.Status === "Resolved" ? 0.6 : 1 }}
                       >
                         {engineers.map(e => (
                           <option key={e} value={e}>
